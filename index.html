@@ -2495,27 +2495,35 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Use real HTTP POST with JSON body to avoid URL length limits (fails on large itemPerms).
-  // GAS doPost parses e.postData.contents as JSON. Using 'text/plain' avoids CORS preflight.
-  try {
-    const res = await fetch(GAS_URL, {
+  // GAS web apps redirect POST → GET which breaks fetch with redirect:'follow'.
+  // Strategy: fire POST with no-cors (opaque, always succeeds if network is up),
+  // then do a small GET ping to confirm the script is reachable.
+  // For read actions (getAll etc.) we still use GET with redirect:follow.
+  const isWrite = ['saveDealers','saveAdmin','saveSubmission','clearSubmissions','saveChecklists'].includes(body.action);
+
+  if (isWrite) {
+    // Step 1: POST with no-cors — GAS doPost receives full JSON body, no URL limit.
+    await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(body),
+      mode: 'no-cors',   // avoids CORS error on opaque redirect
       redirect: 'follow'
     });
-    const json = await res.json();
-    if (json && json.error) throw new Error(json.error);
-    return json;
-  } catch (e) {
-    // Fallback to GET for environments where POST redirect fails
-    const data = encodeURIComponent(JSON.stringify(body.data !== undefined ? body.data : body));
-    const u = GAS_URL + '?action=' + body.action + '&data=' + data + '&t=' + Date.now();
-    const res2 = await fetch(u, { redirect: 'follow' });
-    const json2 = await res2.json();
-    if (json2 && json2.error) throw new Error(json2.error);
-    return json2;
+    // Step 2: GET ping to verify GAS is alive (catches network-down scenarios)
+    const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
+    const pj = await ping.json();
+    if (pj && pj.error) throw new Error(pj.error);
+    return { ok: true };
   }
+
+  // Non-write (getAll, ping etc.) — standard GET
+  const data = body.data !== undefined ? '&data=' + encodeURIComponent(JSON.stringify(body.data)) : '';
+  const u = GAS_URL + '?action=' + body.action + data + '&t=' + Date.now();
+  const res = await fetch(u, { redirect: 'follow' });
+  const json = await res.json();
+  if (json && json.error) throw new Error(json.error);
+  return json;
 }
 
 /* ── DATA ── */
