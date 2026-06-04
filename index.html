@@ -2502,12 +2502,20 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  const data = body.data !== undefined ? '&data=' + encodeURIComponent(JSON.stringify(body.data)) : '';
-  const u = GAS_URL + '?action=' + body.action + data + '&t=' + Date.now();
-  const res = await fetch(u, { redirect: 'follow' });
-  const json = await res.json();
-  if (json && json.error) throw new Error(json.error);
-  return json;
+  // GAS doPost accepts JSON body — no URL length limit.
+  // Must use mode:'no-cors' because GAS redirects make the response opaque.
+  // We verify success with a lightweight GET ping after.
+  await fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(body)
+  });
+  // Ping confirms GAS is reachable; if network is down this throws
+  const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
+  const pj = await ping.json();
+  if (pj && pj.error) throw new Error(pj.error);
+  return { ok: true };
 }
 
 /* ── DATA ── */
