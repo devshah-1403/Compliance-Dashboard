@@ -1536,6 +1536,146 @@ body {
   .cl-head .col-status, .cl-row .col-status,
   .cl-head .col-remarks, .cl-row .col-remarks { display: none; }
 }
+
+/* ═══════════════════════════════════════
+   MOBILE DEALER UI  (≤ 600px)
+═══════════════════════════════════════ */
+@media (max-width: 600px) {
+
+  /* ── Nav ── */
+  .dealer-nav { padding: 0 1rem; height: 52px; }
+  .topbar-brand-name { font-size: 13px; }
+  .date-chip { display: none; }
+  .topbar-user .uid { display: none; }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Body & hero ── */
+  .dealer-body {
+    padding: 0.75rem 0.75rem 100px;  /* bottom pad for sticky submit */
+  }
+  .dealer-hero {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 12px;
+  }
+  .dealer-hero-left h2 { font-size: 16px; }
+  .dealer-hero-left p  { font-size: 11px; }
+  .dealer-hero-right { font-size: 11px !important; }
+  #overallPct { font-size: 20px !important; }
+
+  /* ── Section tabs → horizontal scroll ── */
+  .cl-tabs {
+    gap: 6px;
+    padding: 4px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    margin-bottom: 1rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .cl-tabs::-webkit-scrollbar { display: none; }
+  .cl-tab {
+    flex: 0 0 auto;
+    padding: 7px 14px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* ── Checklist table → card stack ── */
+  .cl-table-wrap { border-radius: 12px; overflow: hidden; }
+  .cl-head { display: none; }          /* hide desktop header */
+
+  .cl-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    grid-template-columns: unset;
+    position: relative;
+  }
+  .cl-row:last-child { border-bottom: none; }
+
+  /* Number badge */
+  .cl-num {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 10px;
+    background: var(--ink4);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+
+  /* Item text */
+  .cl-label {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    padding-right: 36px; /* space for number badge */
+    padding-top: 0;
+  }
+
+  /* Status pills — show on mobile (they were hidden col-status) */
+  .col-status { display: block !important; }
+  .status-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .status-group::-webkit-scrollbar { display: none; }
+  .status-label {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  /* Remarks — show on mobile */
+  .col-remarks { display: block !important; }
+  .remarks-input {
+    font-size: 13px;
+    min-height: 38px;
+    border-radius: 8px;
+  }
+
+  /* ── Section footer → sticky bottom bar ── */
+  .section-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 10px 16px;
+    gap: 10px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: rgba(15, 17, 26, 0.95);
+    display: flex;
+    align-items: center;
+  }
+  .progress-block { flex: 1; min-width: 0; }
+  .progress-labels { font-size: 11px; }
+  .submit-msg { font-size: 11px; white-space: nowrap; }
+  .btn-submit {
+    padding: 10px 18px;
+    font-size: 13px;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Only show footer for active section */
+  .checklist-section .section-footer { display: none; }
+  .checklist-section.active .section-footer { display: flex; }
+}
 /* ═══════════════════════════════════════
    CHECKLIST MANAGER (ADMIN)
 ═══════════════════════════════════════ */
