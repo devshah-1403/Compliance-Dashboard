@@ -2495,14 +2495,27 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Use GET with encoded data — avoids CORS issues completely.
-  // GAS doGet handles all actions including saves.
-  const data = encodeURIComponent(JSON.stringify(body.data !== undefined ? body.data : body));
-  const u = GAS_URL + '?action=' + body.action + '&data=' + data + '&t=' + Date.now();
-  const res = await fetch(u, { redirect: 'follow' });
-  const json = await res.json();
-  if (json && json.error) throw new Error(json.error);
-  return json;
+  // Use real HTTP POST with JSON body to avoid URL length limits (fails on large itemPerms).
+  // GAS doPost parses e.postData.contents as JSON. Using 'text/plain' avoids CORS preflight.
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body),
+      redirect: 'follow'
+    });
+    const json = await res.json();
+    if (json && json.error) throw new Error(json.error);
+    return json;
+  } catch (e) {
+    // Fallback to GET for environments where POST redirect fails
+    const data = encodeURIComponent(JSON.stringify(body.data !== undefined ? body.data : body));
+    const u = GAS_URL + '?action=' + body.action + '&data=' + data + '&t=' + Date.now();
+    const res2 = await fetch(u, { redirect: 'follow' });
+    const json2 = await res2.json();
+    if (json2 && json2.error) throw new Error(json2.error);
+    return json2;
+  }
 }
 
 /* ── DATA ── */
