@@ -2826,6 +2826,48 @@ function refreshDealerMaps() {
 let currentDealer = null;
 let submissions = {};
 
+/* ── DRAFT PERSISTENCE (localStorage) ── */
+function draftKey(dealer, si) {
+  return `nbs_draft_${dealer}_${si}_${today()}`;
+}
+
+function saveDraft(si) {
+  if (!currentDealer) return;
+  const dealer = dealerRegistry[currentDealer];
+  const perms  = dealer ? getItemPerms(dealer, si) : CHECKLISTS[si].items.map(() => true);
+  const draft  = {};
+  CHECKLISTS[si].items.forEach((_, idx) => {
+    if (!perms[idx]) return;
+    const uid    = `s${si}_i${idx}_${currentDealer}`;
+    const selEl  = document.querySelector(`input[name="${uid}"]:checked`);
+    const remEl  = document.getElementById(`rem-${uid}`);
+    draft[idx]   = { status: selEl ? selEl.value : '', remarks: remEl ? remEl.value : '' };
+  });
+  try { localStorage.setItem(draftKey(currentDealer, si), JSON.stringify(draft)); } catch(e) {}
+}
+
+function restoreDraft(si) {
+  if (!currentDealer) return false;
+  let raw;
+  try { raw = localStorage.getItem(draftKey(currentDealer, si)); } catch(e) { return false; }
+  if (!raw) return false;
+  let draft;
+  try { draft = JSON.parse(raw); } catch(e) { return false; }
+  let anyRestored = false;
+  Object.entries(draft).forEach(([idx, val]) => {
+    const uid   = `s${si}_i${idx}_${currentDealer}`;
+    const radio = val.status ? document.querySelector(`input[name="${uid}"][value="${val.status}"]`) : null;
+    if (radio) { radio.checked = true; anyRestored = true; onStatusChange(uid, si); }
+    const remEl = document.getElementById(`rem-${uid}`);
+    if (remEl && val.remarks) { remEl.value = val.remarks; }
+  });
+  return anyRestored;
+}
+
+function clearDraft(si) {
+  try { localStorage.removeItem(draftKey(currentDealer, si)); } catch(e) {}
+}
+
 /* ── UTILS ── */
 function today() {
   return new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
@@ -2968,7 +3010,40 @@ function renderChecklists() {
       container.appendChild(row);
     });
     updateProgress(si);
+
+    // Restore today's draft if exists
+    const hasDraft = restoreDraft(si);
+    // Check if already submitted today
+    const key = `${currentDealer}_${si}`;
+    const alreadySubmitted = !!submissions[key];
+    const btn  = document.getElementById(`submit-btn-${si}`);
+    const msg  = document.getElementById(`submit-msg-${si}`);
+    if (alreadySubmitted) {
+      // Restore submitted values into form
+      const sub = submissions[key];
+      let visIdx = 0;
+      section.items.forEach((_, idx) => {
+        if (!perms[idx]) return;
+        const uid   = `s${si}_i${idx}_${currentDealer}`;
+        const d     = sub.data[visIdx++];
+        if (!d) return;
+        if (d.status) {
+          const radio = document.querySelector(`input[name="${uid}"][value="${d.status}"]`);
+          if (radio) { radio.checked = true; onStatusChange(uid, si); }
+        }
+        const remEl = document.getElementById(`rem-${uid}`);
+        if (remEl && d.remarks) remEl.value = d.remarks;
+      });
+      btn.textContent = 'Resubmit';
+      btn.style.background = 'var(--amber)';
+      msg.classList.add('show');
+      updateProgress(si);
+    } else if (hasDraft) {
+      updateProgress(si);
+      updateOverallPct();
+    }
   });
+  updateOverallPct();
 }
 
 function onStatusChange(uid, si) {
@@ -2987,6 +3062,7 @@ function onStatusChange(uid, si) {
   }
   updateProgress(si);
   updateOverallPct();
+  saveDraft(si);
 }
 
 function onRemarks(uid, si) {
@@ -2996,6 +3072,7 @@ function onRemarks(uid, si) {
     if (remEl.value.trim()) remEl.classList.remove('mandatory');
     else remEl.classList.add('mandatory');
   }
+  saveDraft(si);
 }
 
 function updateProgress(si) {
@@ -3082,12 +3159,15 @@ async function submitSection(si) {
   try {
     await gasPost({ action: 'saveSubmission', data: sub });
     submissions[key] = sub;
+    clearDraft(si);
     document.getElementById(`submit-msg-${si}`).classList.add('show');
-    btn.textContent = '✓ Submitted';
+    btn.textContent       = 'Resubmit';
+    btn.style.background  = 'var(--amber)';
+    btn.disabled          = false;
   } catch(e) {
     alert('Failed to save to Google Sheets. Please try again.');
     btn.disabled    = false;
-    btn.textContent = 'Submit Section';
+    btn.textContent = submissions[key] ? 'Resubmit' : 'Submit Section';
   }
 }
 
