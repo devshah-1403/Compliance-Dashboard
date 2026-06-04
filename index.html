@@ -2322,7 +2322,14 @@ const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 function doGet(e) {
   const action  = e.parameter.action;
-  const payload = e.parameter.payload ? JSON.parse(decodeURIComponent(e.parameter.payload)) : null;
+  // Support both ?payload=<json> (legacy) and ?action=X&data=<json> (current)
+  let payload = null;
+  if (e.parameter.payload) {
+    payload = JSON.parse(decodeURIComponent(e.parameter.payload));
+  } else if (e.parameter.data) {
+    // data param contains the .data field; wrap it so _handle sees {data: ...}
+    payload = { action: action, data: JSON.parse(decodeURIComponent(e.parameter.data)) };
+  }
   return _handle(action, payload);
 }
 
@@ -2495,29 +2502,6 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // GAS web apps redirect POST → GET which breaks fetch with redirect:'follow'.
-  // Strategy: fire POST with no-cors (opaque, always succeeds if network is up),
-  // then do a small GET ping to confirm the script is reachable.
-  // For read actions (getAll etc.) we still use GET with redirect:follow.
-  const isWrite = ['saveDealers','saveAdmin','saveSubmission','clearSubmissions','saveChecklists'].includes(body.action);
-
-  if (isWrite) {
-    // Step 1: POST with no-cors — GAS doPost receives full JSON body, no URL limit.
-    await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body),
-      mode: 'no-cors',   // avoids CORS error on opaque redirect
-      redirect: 'follow'
-    });
-    // Step 2: GET ping to verify GAS is alive (catches network-down scenarios)
-    const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
-    const pj = await ping.json();
-    if (pj && pj.error) throw new Error(pj.error);
-    return { ok: true };
-  }
-
-  // Non-write (getAll, ping etc.) — standard GET
   const data = body.data !== undefined ? '&data=' + encodeURIComponent(JSON.stringify(body.data)) : '';
   const u = GAS_URL + '?action=' + body.action + data + '&t=' + Date.now();
   const res = await fetch(u, { redirect: 'follow' });
