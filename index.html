@@ -2571,6 +2571,10 @@ async function initApp() {
         } else {
           itemPerms = d.itemPerms;
         }
+        // Normalise all keys to strings (JSON.parse may produce numeric keys)
+        const normalised = {};
+        Object.entries(itemPerms).forEach(([k, v]) => { normalised[String(k)] = v; });
+        itemPerms = normalised;
       }
       dealerRegistry[d.id] = { name: d.name, pass: String(d.pass), sections, itemPerms };
     });
@@ -3337,24 +3341,50 @@ async function toggleSection(dealerId, secIdx) {
 /* ── Item-level permissions ── */
 function getItemPerms(dealer, si) {
   // dealer.itemPerms: { [si]: [true,true,false,...] }
+  // NOTE: This function ONLY mutates dealer.itemPerms when called from openItemPermsModal
+  // or renderChecklist (actual usage). renderDealerManagement uses getItemPermsReadOnly
+  // to avoid corrupting saved perms with all-true defaults.
   if (!dealer.itemPerms) dealer.itemPerms = {};
+  const key = String(si);
   // If no saved perms for this section yet, default ALL to true (first-time setup)
-  if (!dealer.itemPerms[si]) {
-    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[si];
+  if (!dealer.itemPerms[key] && !dealer.itemPerms[si]) {
+    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[key];
   }
+  // Normalise key — sheet may have stored as number key, ensure string key
+  if (!dealer.itemPerms[key] && dealer.itemPerms[si]) {
+    dealer.itemPerms[key] = dealer.itemPerms[si];
+    delete dealer.itemPerms[si];
+  }
+  const saved = dealer.itemPerms[key];
   // If the saved array is from before a major checklist expansion (less than half the
   // current length), treat it as stale and reset ALL to true so no items go missing.
-  if (dealer.itemPerms[si].length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
-    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[si];
+  if (saved.length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
+    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[key];
   }
   // Saved perms exist and are reasonably current — extend if checklist grew, padding with TRUE
-  while (dealer.itemPerms[si].length < CHECKLISTS[si].items.length) dealer.itemPerms[si].push(true);
+  while (dealer.itemPerms[key].length < CHECKLISTS[si].items.length) dealer.itemPerms[key].push(true);
   // Trim if checklist shrank
-  if (dealer.itemPerms[si].length > CHECKLISTS[si].items.length)
-    dealer.itemPerms[si] = dealer.itemPerms[si].slice(0, CHECKLISTS[si].items.length);
-  return dealer.itemPerms[si];
+  if (dealer.itemPerms[key].length > CHECKLISTS[si].items.length)
+    dealer.itemPerms[key] = dealer.itemPerms[key].slice(0, CHECKLISTS[si].items.length);
+  return dealer.itemPerms[key];
+}
+
+function getItemPermsReadOnly(dealer, si) {
+  // Read-only version — NEVER mutates dealer.itemPerms.
+  // Used by renderDealerManagement to show counts without triggering initialisation
+  // of inactive sections (which would overwrite saved partial perms with all-true).
+  if (!dealer.itemPerms) return CHECKLISTS[si].items.map(() => true);
+  const key = String(si);
+  const saved = dealer.itemPerms[key] ?? dealer.itemPerms[si];
+  if (!saved || !Array.isArray(saved)) return CHECKLISTS[si].items.map(() => true);
+  const total = CHECKLISTS[si].items.length;
+  if (saved.length < Math.ceil(total / 2)) return CHECKLISTS[si].items.map(() => true);
+  // Pad/trim without mutating — return a copy
+  if (saved.length < total) return [...saved, ...Array(total - saved.length).fill(true)];
+  if (saved.length > total) return saved.slice(0, total);
+  return saved;
 }
 
 function openItemPermsModal(dealerId, si) {
@@ -3491,7 +3521,7 @@ function renderDealerManagement() {
     const sections = d.sections ?? [0,1,2];
     const sectionBtns = sectionNames.map((sn, si) => {
       const active = sections.includes(si);
-      const perms = getItemPerms(d, si);
+      const perms = getItemPermsReadOnly(d, si);
       const enabledCount = perms.filter(Boolean).length;
       const totalCount   = CHECKLISTS[si].items.length;
       const allEnabled   = enabledCount === totalCount;
