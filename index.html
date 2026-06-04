@@ -2495,27 +2495,14 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Primary: POST with JSON body to avoid GET URL length limits for large submissions.
-  // GAS doPost must be deployed (see updated Apps Script below).
-  // Falls back to GET-param encoding for small payloads if POST fails.
-  const u = GAS_URL + '?t=' + Date.now();
-  try {
-    const res = await fetch(u, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body)
-    });
-    const json = await res.json();
-    if (!json || json.error) throw new Error(json && json.error ? json.error : 'POST failed');
-    return json;
-  } catch(postErr) {
-    console.warn('POST failed, falling back to GET encoding:', postErr);
-    const payload = encodeURIComponent(JSON.stringify(body));
-    const uFb = GAS_URL + '?action=' + body.action + '&payload=' + payload + '&t=' + Date.now();
-    const res = await fetch(uFb, { redirect: 'follow' });
-    return res.json();
-  }
+  // Use GET with encoded data — avoids CORS issues completely.
+  // GAS doGet handles all actions including saves.
+  const data = encodeURIComponent(JSON.stringify(body.data !== undefined ? body.data : body));
+  const u = GAS_URL + '?action=' + body.action + '&data=' + data + '&t=' + Date.now();
+  const res = await fetch(u, { redirect: 'follow' });
+  const json = await res.json();
+  if (json && json.error) throw new Error(json.error);
+  return json;
 }
 
 /* ── DATA ── */
