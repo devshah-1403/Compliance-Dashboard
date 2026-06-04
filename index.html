@@ -2555,24 +2555,29 @@ async function initApp() {
 
     // Rebuild dealer registry
     dealerRegistry = {};
+    let needsResave = false;
     (all.dealers || []).forEach(d => {
       let sections = d.sections;
       if (typeof sections === 'string') {
         try { sections = JSON.parse(sections); } catch(e) { sections = [0,1,2]; }
       }
-      dealerRegistry[d.id] = {
-        name: d.name,
-        pass: String(d.pass),
-        sections,
-        itemPerms: (() => {
-          if (!d.itemPerms) return {};
-          if (typeof d.itemPerms === 'string') {
-            try { return JSON.parse(d.itemPerms); } catch(e) { return {}; }
-          }
-          return d.itemPerms;
-        })()
-      };
+      let itemPerms = {};
+      if (!d.itemPerms || d.itemPerms === '' || d.itemPerms === '{}') {
+        // itemPerms column missing or empty — sheet needs resave with new column
+        needsResave = true;
+      } else {
+        if (typeof d.itemPerms === 'string') {
+          try { itemPerms = JSON.parse(d.itemPerms); } catch(e) { itemPerms = {}; needsResave = true; }
+        } else {
+          itemPerms = d.itemPerms;
+        }
+      }
+      dealerRegistry[d.id] = { name: d.name, pass: String(d.pass), sections, itemPerms };
     });
+    // If any dealer was missing itemPerms, resave all dealers to fix the Sheets column
+    if (needsResave && Object.keys(dealerRegistry).length > 0) {
+      saveDealers().catch(e => console.warn('Resave dealers failed:', e));
+    }
 
     // Rebuild admin creds
     if (all.admin && all.admin.length) {
@@ -3448,12 +3453,18 @@ function toggleAllItems(dealerId, si, checked) {
 
 async function saveItemPerms(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
-  // perms already updated in-memory by toggleItemPerm/toggleAllItems
-  // Make sure itemPerms object is set
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  await saveDealers();
-  closeItemPermsModal();
-  renderDealerManagement();
+  const btn = document.querySelector('#itemPermsModal button[onclick*="saveItemPerms"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
+  try {
+    await saveDealers();
+    closeItemPermsModal();
+    renderDealerManagement();
+    alert(`✓ Saved! ${dealer.name}'s tasks updated in Google Sheets.`);
+  } catch(e) {
+    if (btn) { btn.textContent = 'Save Changes'; btn.disabled = false; }
+    alert('❌ Save failed. Check your internet connection.\n\nError: ' + e.message);
+  }
 }
 
 async function updateDealerPassword(id) {
