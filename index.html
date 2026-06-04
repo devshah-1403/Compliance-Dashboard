@@ -2556,10 +2556,13 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets (comes bundled in getAll — no extra round-trip)
+    // Load checklists from Sheets only if they have actual items.
+    // If Sheets returns empty or null, keep CHECKLISTS arrays empty so dealer sees nothing.
     if (all.checklists && all.checklists.length > 0) {
       all.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
 
@@ -2733,7 +2736,9 @@ async function dealerLogin() {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
@@ -2960,6 +2965,12 @@ function switchPanel(id, el) {
     if (countEl) countEl.textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
     if (clMgmtOpen) renderClMgmt();
     renderDealerManagement();
+    // If all checklists are empty in memory, push empty arrays to Sheets
+    // This clears any stale old data sitting in the Checklists tab
+    const totalItems = CHECKLISTS.reduce((s, sec) => s + sec.items.length, 0);
+    if (totalItems === 0) {
+      gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(() => {});
+    }
   }
 }
 
@@ -3853,12 +3864,10 @@ function stopAutoRefresh() {
 
 // ── Init ──
 window.addEventListener('DOMContentLoaded', () => {
-  // Always connect using the hardcoded GAS URL — no browser storage used.
-  GAS_URL = GAS_URL_HARDCODED;
+  // URL is hardcoded — never show the setup overlay.
   document.getElementById('sheetsSetupOverlay').style.display = 'none';
   initApp().then(() => startAutoRefresh()).catch(err => {
-    console.warn('GAS connection failed, showing setup overlay:', err);
-    document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+    console.warn('GAS connection failed:', err);
   });
 });
 // ═══════════════════════════════════════════════════════════
@@ -3933,7 +3942,8 @@ function clAddItem() {
   CHECKLISTS[clMgmtSection].items.push(text);
   input.value = '';
   renderClMgmt();
-  // Auto-scroll to bottom of list
+  // Auto-save to Sheets immediately — this also creates the Checklists sheet if it doesn't exist
+  gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(e => console.warn('Auto-save failed:', e));
   const listEl = document.getElementById('clItemsList');
   if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: 'smooth' });
 }
