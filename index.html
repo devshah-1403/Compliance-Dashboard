@@ -2462,12 +2462,12 @@ function copyGASCode() {
 }
 
 async function connectSheets() {
-  const url = document.getElementById('gasUrlInput').value.trim();
+  const input = document.getElementById('gasUrlInput');
+  const url = input ? input.value.trim() : '';
   const errEl = document.getElementById('sheetsConnectErr');
-  errEl.style.display = 'none';
+  if (errEl) errEl.style.display = 'none';
   if (!url || !url.includes('script.google.com')) {
-    errEl.textContent = 'Please enter a valid Google Apps Script Web App URL.';
-    errEl.style.display = 'block';
+    if (errEl) { errEl.textContent = 'Please enter a valid Google Apps Script Web App URL.'; errEl.style.display = 'block'; }
     return;
   }
   const btn = event.target;
@@ -2479,9 +2479,10 @@ async function connectSheets() {
     GAS_URL = url;
     document.getElementById('sheetsSetupOverlay').style.display = 'none';
     await initApp();
+    startAutoRefresh();
+    showToast('Connected to Google Sheets!', 'success');
   } catch(e) {
-    errEl.textContent = 'Could not connect. Make sure the URL is correct and deployment is set to "Anyone".';
-    errEl.style.display = 'block';
+    if (errEl) { errEl.textContent = 'Could not connect. Make sure the URL is correct and deployment is set to "Anyone".'; errEl.style.display = 'block'; }
     btn.textContent = 'Connect & Continue';
     btn.disabled = false;
   }
@@ -3865,18 +3866,15 @@ function stopAutoRefresh() {
 
 // ── Init ──
 window.addEventListener('DOMContentLoaded', () => {
-  // Always use the hardcoded GAS URL — no browser storage used at all.
-  // All data (dealers, checklists, submissions) lives exclusively in Google Sheets.
-  if (GAS_URL_HARDCODED.includes('script.google.com')) {
-    document.getElementById('sheetsSetupOverlay').style.display = 'none';
-    initApp().then(() => startAutoRefresh()).catch(err => {
-      console.warn('GAS connection failed, showing setup overlay:', err);
-      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+  // Hide the setup overlay completely — connection is handled silently.
+  // If GAS fails, a non-blocking banner appears instead of blocking the whole app.
+  document.getElementById('sheetsSetupOverlay').style.display = 'none';
+  initApp()
+    .then(() => startAutoRefresh())
+    .catch(err => {
+      console.warn('GAS connection failed:', err);
+      showConnectionBanner();
     });
-  } else {
-    // No valid URL configured — show setup overlay
-    document.getElementById('sheetsSetupOverlay').style.display = 'flex';
-  }
 });
 // ═══════════════════════════════════════════════════════════
 //  CHECKLIST ITEM MANAGER (Admin Panel)
@@ -4140,7 +4138,52 @@ function clDownloadTemplate(e) {
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
   showToast('Template downloaded!', 'success');
 }
-/* ── TOAST NOTIFICATIONS ── */
+/* ── CONNECTION BANNER (non-blocking) ── */
+function showConnectionBanner() {
+  const existing = document.getElementById('gasConnBanner');
+  if (existing) return;
+  const banner = document.createElement('div');
+  banner.id = 'gasConnBanner';
+  banner.style.cssText = `
+    position:fixed;top:0;left:0;right:0;z-index:9999;
+    background:var(--red);color:#fff;
+    padding:10px 20px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    font-family:'Inter',sans-serif;
+  `;
+  banner.innerHTML = `
+    <span>⚠️ Cannot connect to Google Sheets. Data will not load or save until reconnected.</span>
+    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
+      <input id="bannerGasUrl" type="url" placeholder="Paste your GAS Web App URL…"
+        style="padding:5px 10px;border-radius:6px;border:none;font-size:12px;min-width:300px;color:#000;outline:none">
+      <button onclick="reconnectFromBanner()" style="padding:5px 14px;background:#fff;color:var(--red);border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Reconnect</button>
+      <button onclick="document.getElementById('gasConnBanner').remove()" style="padding:5px 10px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer">✕</button>
+    </div>
+  `;
+  document.body.prepend(banner);
+}
+
+async function reconnectFromBanner() {
+  const input = document.getElementById('bannerGasUrl');
+  const url = input ? input.value.trim() : '';
+  if (!url || !url.includes('script.google.com')) {
+    showToast('Please paste a valid GAS Web App URL.', 'error');
+    return;
+  }
+  try {
+    const res = await gasGet('ping', url);
+    if (!res.ok) throw new Error('ping failed');
+    GAS_URL = url;
+    document.getElementById('gasConnBanner')?.remove();
+    await initApp();
+    startAutoRefresh();
+    showToast('Reconnected to Google Sheets!', 'success');
+  } catch(e) {
+    showToast('Still cannot connect. Check the URL and GAS deployment settings.', 'error');
+  }
+}
+
+
 function showToast(msg, type = 'success') {
   const existing = document.getElementById('nbsToast');
   if (existing) existing.remove();
@@ -4163,5 +4206,3 @@ function showToast(msg, type = 'success') {
   document.body.appendChild(toast);
   setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
 }
-
-
