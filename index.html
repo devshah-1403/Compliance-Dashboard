@@ -2310,7 +2310,7 @@ body {
 /* ══════════════════════════════════════════════════════
    GOOGLE SHEETS BACKEND
 ══════════════════════════════════════════════════════ */
-// No localStorage or sessionStorage used — all data lives in Google Sheets.
+const GAS_URL_KEY = 'nbs_gas_url';
 const GAS_URL_HARDCODED = 'https://script.google.com/macros/s/AKfycbwhhGY2p_zl2nHnLMVceAxNZqwSGF-piT_VBzTOsQp_1aA4oL353dMueceNO6SQ2EGxTA/exec';
 let GAS_URL = GAS_URL_HARDCODED;
 
@@ -2462,12 +2462,12 @@ function copyGASCode() {
 }
 
 async function connectSheets() {
-  const input = document.getElementById('gasUrlInput');
-  const url = input ? input.value.trim() : '';
+  const url = document.getElementById('gasUrlInput').value.trim();
   const errEl = document.getElementById('sheetsConnectErr');
-  if (errEl) errEl.style.display = 'none';
+  errEl.style.display = 'none';
   if (!url || !url.includes('script.google.com')) {
-    if (errEl) { errEl.textContent = 'Please enter a valid Google Apps Script Web App URL.'; errEl.style.display = 'block'; }
+    errEl.textContent = 'Please enter a valid Google Apps Script Web App URL.';
+    errEl.style.display = 'block';
     return;
   }
   const btn = event.target;
@@ -2479,10 +2479,9 @@ async function connectSheets() {
     GAS_URL = url;
     document.getElementById('sheetsSetupOverlay').style.display = 'none';
     await initApp();
-    startAutoRefresh();
-    showToast('Connected to Google Sheets!', 'success');
   } catch(e) {
-    if (errEl) { errEl.textContent = 'Could not connect. Make sure the URL is correct and deployment is set to "Anyone".'; errEl.style.display = 'block'; }
+    errEl.textContent = 'Could not connect. Make sure the URL is correct and deployment is set to "Anyone".';
+    errEl.style.display = 'block';
     btn.textContent = 'Connect & Continue';
     btn.disabled = false;
   }
@@ -2520,9 +2519,6 @@ async function gasPost(body) {
 }
 
 /* ── DATA ── */
-// Checklists intentionally start EMPTY — always loaded from Google Sheets.
-// This ensures all 15-20 PCs always see the same tasks set by admin.
-// The hardcoded fallback has been removed to prevent stale data showing up.
 const CHECKLISTS = [
   { name: "Dealer Compliance", items: [] },
   { name: "Back Office Ops",   items: [] },
@@ -2560,15 +2556,12 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets — this is the ONLY source of truth.
-    // If Sheets has no checklist data yet, admin must save via Import Excel or Add Items.
+    // Load checklists from Sheets (comes bundled in getAll — no extra round-trip)
     if (all.checklists && all.checklists.length > 0) {
       all.checklists.forEach((sec, i) => {
         if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
       });
     }
-    // Note: if checklists are empty, the dealer will see an empty checklist
-    // with a message to contact admin. Admin must import/save the checklist first.
 
     // Rebuild dealer registry
     dealerRegistry = {};
@@ -2734,8 +2727,8 @@ async function dealerLogin() {
   document.getElementById('dealerSub').textContent      = `Fill in your assigned checklist sections for ${today()}.`;
   document.getElementById('currentDate').textContent    = today();
 
-  // Always re-fetch latest checklists from Sheets before rendering.
-  // This ensures dealers always see whatever admin last saved — no stale hardcoded data.
+  // Always re-fetch latest checklists from Sheets before rendering
+  // (handles case where admin updated tasks after this session started)
   try {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
@@ -2744,12 +2737,6 @@ async function dealerLogin() {
       });
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
-
-  // Warn if admin hasn't set up the checklist yet
-  const totalItems = CHECKLISTS.reduce((sum, sec) => sum + sec.items.length, 0);
-  if (totalItems === 0) {
-    alert('⚠️ No checklist items found.\n\nThe admin needs to:\n1. Go to Admin → Manage Dealers\n2. Open "Manage Checklist Items"\n3. Import the Excel template and click "Save & Apply Changes"\n\nPlease contact your admin.');
-  }
 
   renderChecklists();
   setView('dealerDash');
@@ -3866,15 +3853,13 @@ function stopAutoRefresh() {
 
 // ── Init ──
 window.addEventListener('DOMContentLoaded', () => {
-  // Hide the setup overlay completely — connection is handled silently.
-  // If GAS fails, a non-blocking banner appears instead of blocking the whole app.
+  // Always connect using the hardcoded GAS URL — no browser storage used.
+  GAS_URL = GAS_URL_HARDCODED;
   document.getElementById('sheetsSetupOverlay').style.display = 'none';
-  initApp()
-    .then(() => startAutoRefresh())
-    .catch(err => {
-      console.warn('GAS connection failed:', err);
-      showConnectionBanner();
-    });
+  initApp().then(() => startAutoRefresh()).catch(err => {
+    console.warn('GAS connection failed, showing setup overlay:', err);
+    document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+  });
 });
 // ═══════════════════════════════════════════════════════════
 //  CHECKLIST ITEM MANAGER (Admin Panel)
@@ -3978,26 +3963,17 @@ function clRenameItem(idx, newText) {
 }
 
 async function clSaveChanges() {
-  const totalItems = CHECKLISTS.reduce((sum, sec) => sum + sec.items.length, 0);
-  if (totalItems === 0) {
-    showToast('Nothing to save — add items first.', 'error');
-    return;
+  // Re-render the dealer checklist views so they pick up the changes
+  if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
+  // If a dealer is logged in on the checklist view, re-render their checklist
+  if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
+    renderChecklists();
   }
-  const btn = document.getElementById('clMgmtSaveRow')?.querySelector('button');
-  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
+  // Persist both checklists and dealer registry to Google Sheets
   try {
-    // Save checklists first, then dealers (itemPerms depend on checklist length)
-    await saveChecklists();
-    await saveDealers();
-    // Verify it saved by reading back
-    const verify = await gasGet('getChecklists');
-    const savedCount = verify?.checklists?.reduce((s, sec) => s + sec.items.length, 0) || 0;
-    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; }
-    showToast(`✓ Saved ${savedCount} items to Google Sheets! All PCs will load this on next login.`, 'success');
-    renderClMgmt();
-    renderDealerManagement();
+    await Promise.all([saveChecklists(), saveDealers()]);
+    showToast('Checklist saved to Google Sheets!', 'success');
   } catch(e) {
-    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; }
     showToast('Save failed — check GAS connection.', 'error');
     console.error('[clSaveChanges]', e);
   }
@@ -4087,9 +4063,8 @@ async function clImportExcel(input) {
     // Re-render dealer checklist if active
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
-    const totalImported = CHECKLISTS.reduce((s, sec) => s + sec.items.length, 0);
     showToast(
-      `✓ Imported ${imported} section${imported>1?'s':''} — ${totalImported} total items loaded.\nNow click "Save & Apply Changes" to push to Google Sheets!`,
+      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
       'success'
     );
   } catch (err) {
@@ -4138,71 +4113,7 @@ function clDownloadTemplate(e) {
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
   showToast('Template downloaded!', 'success');
 }
-/* ── CONNECTION BANNER (non-blocking) ── */
-function showConnectionBanner() {
-  const existing = document.getElementById('gasConnBanner');
-  if (existing) return;
-  const banner = document.createElement('div');
-  banner.id = 'gasConnBanner';
-  banner.style.cssText = `
-    position:fixed;top:0;left:0;right:0;z-index:9999;
-    background:var(--red);color:#fff;
-    padding:10px 20px;font-size:13px;font-weight:600;
-    display:flex;align-items:center;justify-content:space-between;gap:12px;
-    font-family:'Inter',sans-serif;
-  `;
-  banner.innerHTML = `
-    <span>⚠️ Cannot connect to Google Sheets. Data will not load or save until reconnected.</span>
-    <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
-      <input id="bannerGasUrl" type="url" placeholder="Paste your GAS Web App URL…"
-        style="padding:5px 10px;border-radius:6px;border:none;font-size:12px;min-width:300px;color:#000;outline:none">
-      <button onclick="reconnectFromBanner()" style="padding:5px 14px;background:#fff;color:var(--red);border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Reconnect</button>
-      <button onclick="document.getElementById('gasConnBanner').remove()" style="padding:5px 10px;background:rgba(255,255,255,0.2);color:#fff;border:none;border-radius:6px;font-size:12px;cursor:pointer">✕</button>
-    </div>
-  `;
-  document.body.prepend(banner);
-}
 
-async function reconnectFromBanner() {
-  const input = document.getElementById('bannerGasUrl');
-  const url = input ? input.value.trim() : '';
-  if (!url || !url.includes('script.google.com')) {
-    showToast('Please paste a valid GAS Web App URL.', 'error');
-    return;
-  }
-  try {
-    const res = await gasGet('ping', url);
-    if (!res.ok) throw new Error('ping failed');
-    GAS_URL = url;
-    document.getElementById('gasConnBanner')?.remove();
-    await initApp();
-    startAutoRefresh();
-    showToast('Reconnected to Google Sheets!', 'success');
-  } catch(e) {
-    showToast('Still cannot connect. Check the URL and GAS deployment settings.', 'error');
-  }
-}
-
-
-function showToast(msg, type = 'success') {
-  const existing = document.getElementById('nbsToast');
-  if (existing) existing.remove();
-  const toast = document.createElement('div');
-  toast.id = 'nbsToast';
-  const bg = type === 'success' ? 'var(--green)' : type === 'error' ? 'var(--red)' : 'var(--accent)';
-  toast.style.cssText = `
-    position:fixed;bottom:24px;right:24px;z-index:99999;
-    background:${bg};color:#fff;
-    padding:12px 20px;border-radius:10px;
-    font-size:13px;font-weight:600;font-family:'Inter',sans-serif;
-    box-shadow:0 4px 20px rgba(0,0,0,0.4);
-    max-width:400px;line-height:1.4;
-    animation:toastIn .2s ease;
-  `;
-  toast.textContent = msg;
-  const style = document.createElement('style');
-  style.textContent = '@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}';
-  document.head.appendChild(style);
-  document.body.appendChild(toast);
-  setTimeout(() => { if (toast.parentNode) toast.remove(); }, 4000);
-}
+</script>
+</body>
+</html>
