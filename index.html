@@ -3973,18 +3973,20 @@ function clRenameItem(idx, newText) {
 }
 
 async function clSaveChanges() {
-  // Re-render the dealer checklist views so they pick up the changes
-  if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
-  // If a dealer is logged in on the checklist view, re-render their checklist
-  if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
-    renderChecklists();
-  }
-  // Persist both checklists and dealer registry to Google Sheets
+  const btn = event?.target;
+  const originalText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
   try {
-    await Promise.all([saveChecklists(), saveDealers()]);
-    showToast('Checklist saved to Google Sheets!', 'success');
+    await saveChecklists();
+    await saveDealers();
+    if (btn) { btn.textContent = '✓ Saved!'; btn.style.background = 'var(--green)'; }
+    setTimeout(() => {
+      if (btn) { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }
+    }, 2000);
+    alert('✓ Checklist saved to Google Sheets! All dealers will see updated tasks on next login.');
   } catch(e) {
-    showToast('Save failed — check GAS connection.', 'error');
+    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    alert('❌ Save failed. Check your GAS URL and internet connection.\n\nError: ' + e.message);
     console.error('[clSaveChanges]', e);
   }
 }
@@ -4064,7 +4066,7 @@ async function clImportExcel(input) {
     });
 
     if (imported === 0) {
-      showToast('No matching section sheets found in this file.', 'error');
+      alert('No matching section sheets found in this file.');
       return;
     }
 
@@ -4073,13 +4075,10 @@ async function clImportExcel(input) {
     // Re-render dealer checklist if active
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
-    showToast(
-      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
-      'success'
-    );
+    alert(`✓ Imported ${imported} section${imported>1?'s':''} successfully! Now click "Save & Apply Changes" to push to Google Sheets.${skipped?' ('+skipped+' sheet(s) skipped)':''}`);
   } catch (err) {
     console.error('[Import]', err);
-    showToast('Failed to read Excel file. Make sure it is the NBS template format.', 'error');
+    alert('Failed to read Excel file. Make sure it is the NBS template format.');
   }
 }
 
@@ -4088,7 +4087,7 @@ function clDownloadTemplate(e) {
   e.preventDefault();
 
   if (typeof XLSX === 'undefined') {
-    showToast('Excel library not loaded yet — please wait a moment.', 'error');
+    alert('Excel library not loaded yet — please wait a moment.');
     return;
   }
 
@@ -4121,7 +4120,7 @@ function clDownloadTemplate(e) {
   });
 
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
-  showToast('Template downloaded!', 'success');
+  alert('Template downloaded!');
 }
 
 </script>
