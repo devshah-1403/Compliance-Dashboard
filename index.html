@@ -1536,6 +1536,146 @@ body {
   .cl-head .col-status, .cl-row .col-status,
   .cl-head .col-remarks, .cl-row .col-remarks { display: none; }
 }
+
+/* ═══════════════════════════════════════
+   MOBILE DEALER UI  (≤ 600px)
+═══════════════════════════════════════ */
+@media (max-width: 600px) {
+
+  /* ── Nav ── */
+  .dealer-nav { padding: 0 1rem; height: 52px; }
+  .topbar-brand-name { font-size: 13px; }
+  .date-chip { display: none; }
+  .topbar-user .uid { display: none; }
+  .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+  /* ── Body & hero ── */
+  .dealer-body {
+    padding: 0.75rem 0.75rem 100px;  /* bottom pad for sticky submit */
+  }
+  .dealer-hero {
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 12px;
+  }
+  .dealer-hero-left h2 { font-size: 16px; }
+  .dealer-hero-left p  { font-size: 11px; }
+  .dealer-hero-right { font-size: 11px !important; }
+  #overallPct { font-size: 20px !important; }
+
+  /* ── Section tabs → horizontal scroll ── */
+  .cl-tabs {
+    gap: 6px;
+    padding: 4px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    margin-bottom: 1rem;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .cl-tabs::-webkit-scrollbar { display: none; }
+  .cl-tab {
+    flex: 0 0 auto;
+    padding: 7px 14px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* ── Checklist table → card stack ── */
+  .cl-table-wrap { border-radius: 12px; overflow: hidden; }
+  .cl-head { display: none; }          /* hide desktop header */
+
+  .cl-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    grid-template-columns: unset;
+    position: relative;
+  }
+  .cl-row:last-child { border-bottom: none; }
+
+  /* Number badge */
+  .cl-num {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 10px;
+    background: var(--ink4);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1px 6px;
+  }
+
+  /* Item text */
+  .cl-label {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    padding-right: 36px; /* space for number badge */
+    padding-top: 0;
+  }
+
+  /* Status pills — show on mobile (they were hidden col-status) */
+  .col-status { display: block !important; }
+  .status-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .status-group::-webkit-scrollbar { display: none; }
+  .status-label {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  /* Remarks — show on mobile */
+  .col-remarks { display: block !important; }
+  .remarks-input {
+    font-size: 13px;
+    min-height: 38px;
+    border-radius: 8px;
+  }
+
+  /* ── Section footer → sticky bottom bar ── */
+  .section-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    padding: 10px 16px;
+    gap: 10px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: rgba(15, 17, 26, 0.95);
+    display: flex;
+    align-items: center;
+  }
+  .progress-block { flex: 1; min-width: 0; }
+  .progress-labels { font-size: 11px; }
+  .submit-msg { font-size: 11px; white-space: nowrap; }
+  .btn-submit {
+    padding: 10px 18px;
+    font-size: 13px;
+    border-radius: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Only show footer for active section */
+  .checklist-section .section-footer { display: none; }
+  .checklist-section.active .section-footer { display: flex; }
+}
 /* ═══════════════════════════════════════
    CHECKLIST MANAGER (ADMIN)
 ═══════════════════════════════════════ */
@@ -2071,19 +2211,15 @@ body {
         </div>
 
         <!-- Controls row -->
-        <div class="history-controls" style="flex-wrap:wrap;gap:12px 16px;align-items:flex-end">
-          <div class="history-ctrl-group">
-            <label class="history-ctrl-label">Specific Date</label>
-            <input type="date" class="filter-select" id="histDate" style="cursor:pointer">
-          </div>
+        <div class="history-controls">
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Year</label>
-            <select class="filter-select" id="histYear">
+            <select class="filter-select" id="histYear" onchange="renderHistory()">
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Month</label>
-            <select class="filter-select" id="histMonth">
+            <select class="filter-select" id="histMonth" onchange="renderHistory()">
               <option value="">All Months</option>
               <option value="01">January</option><option value="02">February</option>
               <option value="03">March</option><option value="04">April</option>
@@ -2095,13 +2231,13 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Dealer</label>
-            <select class="filter-select" id="histDealer">
+            <select class="filter-select" id="histDealer" onchange="renderHistory()">
               <option value="">All Dealers</option>
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Section</label>
-            <select class="filter-select" id="histSection">
+            <select class="filter-select" id="histSection" onchange="renderHistory()">
               <option value="">All Sections</option>
               <option value="0">Dealer Compliance</option>
               <option value="1">Back Office Ops</option>
@@ -2110,17 +2246,27 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Status</label>
-            <select class="filter-select" id="histStatus">
+            <select class="filter-select" id="histStatus" onchange="renderHistory()">
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
               <option value="partial">Partial Done</option>
               <option value="notdone">Not Done</option>
             </select>
           </div>
-          <div style="display:flex;gap:8px;margin-top:18px">
-            <button class="btn-primary" onclick="renderHistory()" style="padding:7px 22px;font-size:13px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:600;letter-spacing:0.2px">🔍 Search</button>
-            <button class="btn-sm" onclick="clearHistoryFilters()" style="color:var(--text3)">Clear</button>
+          <div class="history-ctrl-group">
+            <label class="history-ctrl-label">Date</label>
+            <select class="filter-select" id="histDate" onchange="applyHistDatePreset()">
+              <option value="">All Dates</option>
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="custom">Custom…</option>
+            </select>
           </div>
+          <div class="history-ctrl-group" id="histDateCustomGroup" style="display:none">
+            <label class="history-ctrl-label">Exact Date</label>
+            <input type="date" class="filter-select" id="histDateCustom" onchange="renderHistory()" style="padding:6px 10px;height:auto">
+          </div>
+          <button class="btn-sm" onclick="clearHistoryFilters()" style="margin-top:18px;color:var(--text3)">Clear</button>
         </div>
 
         <!-- Summary KPI strip -->
@@ -2196,11 +2342,17 @@ body {
 
         <!-- Manage Checklist Items Card -->
         <div class="table-card" style="margin-bottom:1.5rem">
-          <div class="table-card-header">
-            <span class="table-card-title">Manage Checklist Items</span>
-            <span class="table-count" id="clMgmtCount"></span>
+          <div class="table-card-header" onclick="toggleClMgmt()" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="table-card-title">Manage Checklist Items</span>
+              <span class="table-count" id="clMgmtCount"></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span id="clMgmtExpandHint" style="font-size:11px;color:var(--text3)">click to expand</span>
+              <span id="clMgmtChevron" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block">▶</span>
+            </div>
           </div>
-          <div style="padding:1.25rem">
+          <div id="clMgmtBody" style="display:none;padding:1.25rem;border-top:1px solid var(--border)">
             <!-- Section Tabs -->
             <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap" id="clMgmtTabs"></div>
             <!-- Add Item Row -->
@@ -2313,10 +2465,7 @@ body {
 ══════════════════════════════════════════════════════ */
 const GAS_URL_KEY = 'nbs_gas_url';
 const GAS_URL_HARDCODED = 'https://script.google.com/macros/s/AKfycbwhhGY2p_zl2nHnLMVceAxNZqwSGF-piT_VBzTOsQp_1aA4oL353dMueceNO6SQ2EGxTA/exec';
-// Prefer previously confirmed URL from sessionStorage; fall back to hardcoded
-let GAS_URL = (() => {
-  try { return sessionStorage.getItem(GAS_URL_KEY) || GAS_URL_HARDCODED; } catch(e) { return GAS_URL_HARDCODED; }
-})();
+let GAS_URL = GAS_URL_HARDCODED;
 
 const GAS_CODE = `
 // NBS Compliance Hub — Google Apps Script Backend
@@ -2326,7 +2475,14 @@ const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 function doGet(e) {
   const action  = e.parameter.action;
-  const payload = e.parameter.payload ? JSON.parse(decodeURIComponent(e.parameter.payload)) : null;
+  // Support both ?payload=<json> (legacy) and ?action=X&data=<json> (current)
+  let payload = null;
+  if (e.parameter.payload) {
+    payload = JSON.parse(decodeURIComponent(e.parameter.payload));
+  } else if (e.parameter.data) {
+    // data param contains the .data field; wrap it so _handle sees {data: ...}
+    payload = { action: action, data: JSON.parse(decodeURIComponent(e.parameter.data)) };
+  }
   return _handle(action, payload);
 }
 
@@ -2342,7 +2498,6 @@ function _handle(action, payload) {
   try {
     if (action === 'ping')              result = { ok: true };
     else if (action === 'getAll')       result = getAll();
-    else if (action === 'getAllHistory') result = getAllHistory();
     else if (action === 'saveDealers')        result = saveDealers(payload.data);
     else if (action === 'saveAdmin')          result = saveAdmin(payload.data);
     else if (action === 'saveSubmission')     result = saveSubmission(payload.data);
@@ -2354,7 +2509,6 @@ function _handle(action, payload) {
       if (payload.action === 'saveDealers')        result = saveDealers(payload.data);
       else if (payload.action === 'saveAdmin')     result = saveAdmin(payload.data);
       else if (payload.action === 'saveSubmission')result = saveSubmission(payload.data);
-      else if (payload.action === 'getAllHistory') result = getAllHistory();
       else if (payload.action === 'clearSubmissions') result = clearSubmissions();
       else result = { error: 'Unknown action' };
     } else {
@@ -2374,20 +2528,12 @@ function getSheet(name, headers) {
 }
 
 function getAll() {
-  // Only today's subs for live dealer view
-  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM yyyy');
-  const allSubs = getSheetData('Submissions');
   return {
     dealers: getSheetData('Dealers'),
     admin: getSheetData('Admin'),
-    subs: allSubs.filter(r => r.date === todayStr),
+    subs: getSheetData('Submissions'),
     checklists: getChecklists().checklists
   };
-}
-
-function getAllHistory() {
-  // All submissions across all dates — used by History panel only
-  return { subs: getSheetData('Submissions') };
 }
 
 function getSheetData(name) {
@@ -2491,7 +2637,6 @@ async function connectSheets() {
     const res = await gasGet('ping', url);
     if (!res.ok) throw new Error('Connection failed');
     GAS_URL = url;
-    sessionStorage.setItem(GAS_URL_KEY, GAS_URL);
     document.getElementById('sheetsSetupOverlay').style.display = 'none';
     await initApp();
   } catch(e) {
@@ -2510,71 +2655,27 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Primary: POST with JSON body to avoid GET URL length limits for large submissions.
-  // GAS doPost must be deployed (see updated Apps Script below).
-  // Falls back to GET-param encoding for small payloads if POST fails.
-  const u = GAS_URL + '?t=' + Date.now();
-  try {
-    const res = await fetch(u, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body)
-    });
-    const json = await res.json();
-    if (!json || json.error) throw new Error(json && json.error ? json.error : 'POST failed');
-    return json;
-  } catch(postErr) {
-    console.warn('POST failed, falling back to GET encoding:', postErr);
-    const payload = encodeURIComponent(JSON.stringify(body));
-    const uFb = GAS_URL + '?action=' + body.action + '&payload=' + payload + '&t=' + Date.now();
-    const res = await fetch(uFb, { redirect: 'follow' });
-    return res.json();
-  }
+  // GAS doPost accepts JSON body — no URL length limit.
+  // Must use mode:'no-cors' because GAS redirects make the response opaque.
+  // We verify success with a lightweight GET ping after.
+  await fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(body)
+  });
+  // Ping confirms GAS is reachable; if network is down this throws
+  const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
+  const pj = await ping.json();
+  if (pj && pj.error) throw new Error(pj.error);
+  return { ok: true };
 }
 
 /* ── DATA ── */
 const CHECKLISTS = [
-  {
-    name: "Dealer Compliance",
-    items: [
-      "Voice recording active","Client identity verified before trade","Margin checked before trade execution",
-      "Orders punched as per client instruction","No unauthorized trades executed",
-      "Client code verified before order entry","Suspicious trading activity reported",
-      "CCM requests documented properly","Terminal password secured",
-      "No use of personal mobile for orders","OMS/RMS connectivity verified",
-      "Pending orders reviewed","Trade confirmations verified",
-      "Dealer activity reconciled","Logged out from trading systems at EOD"
-    ]
-  },
-  {
-    name: "Back Office Ops",
-    items: [
-      "Contract notes generated and dispatched","Trade confirmations verified",
-      "Client ledger reconciliation completed","Bank reconciliation completed",
-      "Daily margin reporting completed","Client fund segregation verified",
-      "Pay-in/pay-out obligations checked","Settlement shortages monitored",
-      "Auction obligations reviewed","Client securities reconciliation completed",
-      "Running account settlement reviewed","Debit balance report checked",
-      "ECN/SMS delivery status verified","UCC upload status verified",
-      "Client code modifications updated","Pledge/re-pledge entries verified",
-      "DP balances reconciled","Suspense entries reviewed",
-      "Trade file uploads verified","Backup of operational data completed",
-      "Pending client requests reviewed","Operational exception register updated"
-    ]
-  },
-  {
-    name: "KYC Department",
-    items: [
-      "PAN verified","Aadhaar verified","CKYC/KRA validation completed","IPV completed",
-      "Mobile number verified","Email ID verified","Address proof verified","Bank proof verified",
-      "Income proof collected for derivatives","Photograph obtained","Signature verified",
-      "Nomination details updated","FATCA declaration obtained","PEP declaration checked",
-      "Risk disclosure documents accepted","UCC created and uploaded","AML screening completed",
-      "Sanction screening completed","Demat details verified","DDPI/POA verification completed",
-      "KYC records updated","Pending documentation reviewed"
-    ]
-  }
+  { name: "Dealer Compliance", items: [] },
+  { name: "Back Office Ops",   items: [] },
+  { name: "KYC Department",    items: [] }
 ];
 
 const DEALER_COLORS_LIST = ['var(--d1)','var(--d2)','var(--d3)','var(--accent)','var(--violet)','var(--amber)','var(--green)'];
@@ -2608,33 +2709,45 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets (comes bundled in getAll — no extra round-trip)
+    // Load checklists from Sheets only if they have actual items.
+    // If Sheets returns empty or null, keep CHECKLISTS arrays empty so dealer sees nothing.
     if (all.checklists && all.checklists.length > 0) {
       all.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
 
     // Rebuild dealer registry
     dealerRegistry = {};
+    let needsResave = false;
     (all.dealers || []).forEach(d => {
       let sections = d.sections;
       if (typeof sections === 'string') {
         try { sections = JSON.parse(sections); } catch(e) { sections = [0,1,2]; }
       }
-      dealerRegistry[d.id] = {
-        name: d.name,
-        pass: String(d.pass),
-        sections,
-        itemPerms: (() => {
-          if (!d.itemPerms) return {};
-          if (typeof d.itemPerms === 'string') {
-            try { return JSON.parse(d.itemPerms); } catch(e) { return {}; }
-          }
-          return d.itemPerms;
-        })()
-      };
+      let itemPerms = {};
+      if (!d.itemPerms || d.itemPerms === '' || d.itemPerms === '{}') {
+        // itemPerms column missing or empty — sheet needs resave with new column
+        needsResave = true;
+      } else {
+        if (typeof d.itemPerms === 'string') {
+          try { itemPerms = JSON.parse(d.itemPerms); } catch(e) { itemPerms = {}; needsResave = true; }
+        } else {
+          itemPerms = d.itemPerms;
+        }
+        // Normalise all keys to strings (JSON.parse may produce numeric keys)
+        const normalised = {};
+        Object.entries(itemPerms).forEach(([k, v]) => { normalised[String(k)] = v; });
+        itemPerms = normalised;
+      }
+      dealerRegistry[d.id] = { name: d.name, pass: String(d.pass), sections, itemPerms };
     });
+    // If any dealer was missing itemPerms, resave all dealers to fix the Sheets column
+    if (needsResave && Object.keys(dealerRegistry).length > 0) {
+      saveDealers().catch(e => console.warn('Resave dealers failed:', e));
+    }
 
     // Rebuild admin creds
     if (all.admin && all.admin.length) {
@@ -2726,6 +2839,48 @@ function refreshDealerMaps() {
 let currentDealer = null;
 let submissions = {};
 
+/* ── DRAFT PERSISTENCE (localStorage) ── */
+function draftKey(dealer, si) {
+  return `nbs_draft_${dealer}_${si}_${today()}`;
+}
+
+function saveDraft(si) {
+  if (!currentDealer) return;
+  const dealer = dealerRegistry[currentDealer];
+  const perms  = dealer ? getItemPerms(dealer, si) : CHECKLISTS[si].items.map(() => true);
+  const draft  = {};
+  CHECKLISTS[si].items.forEach((_, idx) => {
+    if (!perms[idx]) return;
+    const uid    = `s${si}_i${idx}_${currentDealer}`;
+    const selEl  = document.querySelector(`input[name="${uid}"]:checked`);
+    const remEl  = document.getElementById(`rem-${uid}`);
+    draft[idx]   = { status: selEl ? selEl.value : '', remarks: remEl ? remEl.value : '' };
+  });
+  try { localStorage.setItem(draftKey(currentDealer, si), JSON.stringify(draft)); } catch(e) {}
+}
+
+function restoreDraft(si) {
+  if (!currentDealer) return false;
+  let raw;
+  try { raw = localStorage.getItem(draftKey(currentDealer, si)); } catch(e) { return false; }
+  if (!raw) return false;
+  let draft;
+  try { draft = JSON.parse(raw); } catch(e) { return false; }
+  let anyRestored = false;
+  Object.entries(draft).forEach(([idx, val]) => {
+    const uid   = `s${si}_i${idx}_${currentDealer}`;
+    const radio = val.status ? document.querySelector(`input[name="${uid}"][value="${val.status}"]`) : null;
+    if (radio) { radio.checked = true; anyRestored = true; onStatusChange(uid, si); }
+    const remEl = document.getElementById(`rem-${uid}`);
+    if (remEl && val.remarks) { remEl.value = val.remarks; }
+  });
+  return anyRestored;
+}
+
+function clearDraft(si) {
+  try { localStorage.removeItem(draftKey(currentDealer, si)); } catch(e) {}
+}
+
 /* ── UTILS ── */
 function today() {
   return new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
@@ -2785,7 +2940,9 @@ async function dealerLogin() {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
@@ -2866,7 +3023,40 @@ function renderChecklists() {
       container.appendChild(row);
     });
     updateProgress(si);
+
+    // Restore today's draft if exists
+    const hasDraft = restoreDraft(si);
+    // Check if already submitted today
+    const key = `${currentDealer}_${si}`;
+    const alreadySubmitted = !!submissions[key];
+    const btn  = document.getElementById(`submit-btn-${si}`);
+    const msg  = document.getElementById(`submit-msg-${si}`);
+    if (alreadySubmitted) {
+      // Restore submitted values into form
+      const sub = submissions[key];
+      let visIdx = 0;
+      section.items.forEach((_, idx) => {
+        if (!perms[idx]) return;
+        const uid   = `s${si}_i${idx}_${currentDealer}`;
+        const d     = sub.data[visIdx++];
+        if (!d) return;
+        if (d.status) {
+          const radio = document.querySelector(`input[name="${uid}"][value="${d.status}"]`);
+          if (radio) { radio.checked = true; onStatusChange(uid, si); }
+        }
+        const remEl = document.getElementById(`rem-${uid}`);
+        if (remEl && d.remarks) remEl.value = d.remarks;
+      });
+      btn.textContent = 'Resubmit';
+      btn.style.background = 'var(--amber)';
+      msg.classList.add('show');
+      updateProgress(si);
+    } else if (hasDraft) {
+      updateProgress(si);
+      updateOverallPct();
+    }
   });
+  updateOverallPct();
 }
 
 function onStatusChange(uid, si) {
@@ -2885,6 +3075,7 @@ function onStatusChange(uid, si) {
   }
   updateProgress(si);
   updateOverallPct();
+  saveDraft(si);
 }
 
 function onRemarks(uid, si) {
@@ -2894,6 +3085,7 @@ function onRemarks(uid, si) {
     if (remEl.value.trim()) remEl.classList.remove('mandatory');
     else remEl.classList.add('mandatory');
   }
+  saveDraft(si);
 }
 
 function updateProgress(si) {
@@ -2980,12 +3172,15 @@ async function submitSection(si) {
   try {
     await gasPost({ action: 'saveSubmission', data: sub });
     submissions[key] = sub;
+    clearDraft(si);
     document.getElementById(`submit-msg-${si}`).classList.add('show');
-    btn.textContent = '✓ Submitted';
+    btn.textContent       = 'Resubmit';
+    btn.style.background  = 'var(--amber)';
+    btn.disabled          = false;
   } catch(e) {
     alert('Failed to save to Google Sheets. Please try again.');
     btn.disabled    = false;
-    btn.textContent = 'Submit Section';
+    btn.textContent = submissions[key] ? 'Resubmit' : 'Submit Section';
   }
 }
 
@@ -3007,7 +3202,18 @@ function switchPanel(id, el) {
   };
   document.getElementById('panelTitle').textContent = titles[id] || id;
   if (id === 'history') loadHistoryData();
-  if (id === 'manage') renderClMgmt();
+  if (id === 'manage') {
+    const countEl = document.getElementById('clMgmtCount');
+    if (countEl) countEl.textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
+    if (clMgmtOpen) renderClMgmt();
+    renderDealerManagement();
+    // If all checklists are empty in memory, push empty arrays to Sheets
+    // This clears any stale old data sitting in the Checklists tab
+    const totalItems = CHECKLISTS.reduce((s, sec) => s + sec.items.length, 0);
+    if (totalItems === 0) {
+      gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(() => {});
+    }
+  }
 }
 
 function renderAdmin() {
@@ -3381,13 +3587,50 @@ async function toggleSection(dealerId, secIdx) {
 /* ── Item-level permissions ── */
 function getItemPerms(dealer, si) {
   // dealer.itemPerms: { [si]: [true,true,false,...] }
+  // NOTE: This function ONLY mutates dealer.itemPerms when called from openItemPermsModal
+  // or renderChecklist (actual usage). renderDealerManagement uses getItemPermsReadOnly
+  // to avoid corrupting saved perms with all-true defaults.
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  if (!dealer.itemPerms[si]) {
-    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
+  const key = String(si);
+  // If no saved perms for this section yet, default ALL to true (first-time setup)
+  if (!dealer.itemPerms[key] && !dealer.itemPerms[si]) {
+    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[key];
   }
-  // Ensure array length matches checklist
-  while (dealer.itemPerms[si].length < CHECKLISTS[si].items.length) dealer.itemPerms[si].push(true);
-  return dealer.itemPerms[si];
+  // Normalise key — sheet may have stored as number key, ensure string key
+  if (!dealer.itemPerms[key] && dealer.itemPerms[si]) {
+    dealer.itemPerms[key] = dealer.itemPerms[si];
+    delete dealer.itemPerms[si];
+  }
+  const saved = dealer.itemPerms[key];
+  // If the saved array is from before a major checklist expansion (less than half the
+  // current length), treat it as stale and reset ALL to true so no items go missing.
+  if (saved.length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
+    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[key];
+  }
+  // Saved perms exist and are reasonably current — extend if checklist grew, padding with TRUE
+  while (dealer.itemPerms[key].length < CHECKLISTS[si].items.length) dealer.itemPerms[key].push(true);
+  // Trim if checklist shrank
+  if (dealer.itemPerms[key].length > CHECKLISTS[si].items.length)
+    dealer.itemPerms[key] = dealer.itemPerms[key].slice(0, CHECKLISTS[si].items.length);
+  return dealer.itemPerms[key];
+}
+
+function getItemPermsReadOnly(dealer, si) {
+  // Read-only version — NEVER mutates dealer.itemPerms.
+  // Used by renderDealerManagement to show counts without triggering initialisation
+  // of inactive sections (which would overwrite saved partial perms with all-true).
+  if (!dealer.itemPerms) return CHECKLISTS[si].items.map(() => true);
+  const key = String(si);
+  const saved = dealer.itemPerms[key] ?? dealer.itemPerms[si];
+  if (!saved || !Array.isArray(saved)) return CHECKLISTS[si].items.map(() => true);
+  const total = CHECKLISTS[si].items.length;
+  if (saved.length < Math.ceil(total / 2)) return CHECKLISTS[si].items.map(() => true);
+  // Pad/trim without mutating — return a copy
+  if (saved.length < total) return [...saved, ...Array(total - saved.length).fill(true)];
+  if (saved.length > total) return saved.slice(0, total);
+  return saved;
 }
 
 function openItemPermsModal(dealerId, si) {
@@ -3486,12 +3729,18 @@ function toggleAllItems(dealerId, si, checked) {
 
 async function saveItemPerms(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
-  // perms already updated in-memory by toggleItemPerm/toggleAllItems
-  // Make sure itemPerms object is set
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  await saveDealers();
-  closeItemPermsModal();
-  renderDealerManagement();
+  const btn = document.querySelector('#itemPermsModal button[onclick*="saveItemPerms"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
+  try {
+    await saveDealers();
+    closeItemPermsModal();
+    renderDealerManagement();
+    alert(`✓ Saved! ${dealer.name}'s tasks updated in Google Sheets.`);
+  } catch(e) {
+    if (btn) { btn.textContent = 'Save Changes'; btn.disabled = false; }
+    alert('❌ Save failed. Check your internet connection.\n\nError: ' + e.message);
+  }
 }
 
 async function updateDealerPassword(id) {
@@ -3518,7 +3767,7 @@ function renderDealerManagement() {
     const sections = d.sections ?? [0,1,2];
     const sectionBtns = sectionNames.map((sn, si) => {
       const active = sections.includes(si);
-      const perms = getItemPerms(d, si);
+      const perms = getItemPermsReadOnly(d, si);
       const enabledCount = perms.filter(Boolean).length;
       const totalCount   = CHECKLISTS[si].items.length;
       const allEnabled   = enabledCount === totalCount;
@@ -3591,57 +3840,14 @@ let histCurrentPage = 1;
 const HIST_PAGE_SIZE = 50;
 
 /* Called once on init — pull full Submissions sheet then seed year picker */
-// Normalize any date format from Sheets into "DD Mon YYYY" e.g. "04 Jun 2026"
-function normalizeDate(raw) {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  if (!s || s === 'date') return '';
-  // Already correct format "04 Jun 2026"
-  if (/^\d{2} [A-Za-z]{3} \d{4}$/.test(s)) return s;
-  // ISO / JS Date string e.g. "2026-06-03T18:30:00.000Z" or "2026-06-04"
-  try {
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      // Use IST offset (+5:30) to avoid date shifting
-      const ist = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
-      const day   = String(ist.getUTCDate()).padStart(2, '0');
-      const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()];
-      const year  = ist.getUTCFullYear();
-      return `${day} ${month} ${year}`;
-    }
-  } catch(e) {}
-  return s;
-}
-
-function normalizeTime(raw) {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  // If it looks like an ISO date (Sheets time column), extract HH:MM
-  if (s.includes('T') || s.includes('1899')) {
-    try {
-      const d = new Date(s);
-      if (!isNaN(d.getTime())) {
-        const ist = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
-        return `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}`;
-      }
-    } catch(e) {}
-  }
-  return s;
-}
-
 async function loadHistoryData() {
-  // Show loading state immediately
-  const tbody = document.getElementById('histTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">⏳ Loading history from Google Sheets…</td></tr>';
-  const searchBtn = document.querySelector('#panel-history .btn-primary');
-  if (searchBtn) { searchBtn.disabled = true; searchBtn.textContent = '⏳ Loading…'; }
-
   try {
-    const res = await gasGet('getAllHistory');
-    const subs = res.subs || [];
+    const all = await gasGet('getAll');
+    const subs = all.subs || [];
 
+    // Build flat rows from Submissions sheet
     histAllRows = subs.map(row => ({
-      date:       normalizeDate(row.date),
+      date:       String(row.date   || '').trim(),
       dealer:     String(row.dealer || '').trim(),
       dealerName: String(row.dealerName || '').trim(),
       section:    String(row.section || '').trim(),
@@ -3650,15 +3856,12 @@ async function loadHistoryData() {
       item:       String(row.item   || '').trim(),
       status:     String(row.status || '').trim(),
       remarks:    String(row.remarks|| '').trim(),
-      time:       normalizeTime(row.time),
+      time:       String(row.time   || '').trim(),
     }));
 
-    initHistoryFilters(); // populates dropdowns and calls renderHistory()
+    initHistoryFilters();
   } catch(e) {
     console.warn('loadHistoryData failed:', e);
-    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">❌ Failed to load history. Check GAS URL in Settings.</td></tr>';
-  } finally {
-    if (searchBtn) { searchBtn.disabled = false; searchBtn.textContent = '🔍 Search'; }
   }
 }
 
@@ -3685,12 +3888,40 @@ function initHistoryFilters() {
 }
 
 function clearHistoryFilters() {
-  ['histDate','histYear','histMonth','histDealer','histSection','histStatus'].forEach(id => {
+  ['histYear','histMonth','histDealer','histSection','histStatus','histDate'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
+  const cg = document.getElementById('histDateCustomGroup');
+  if (cg) cg.style.display = 'none';
   histCurrentPage = 1;
   renderHistory();
+}
+
+function applyHistDatePreset() {
+  const val = document.getElementById('histDate')?.value || '';
+  const cg  = document.getElementById('histDateCustomGroup');
+  if (cg) cg.style.display = val === 'custom' ? '' : 'none';
+  if (val !== 'custom') renderHistory();
+}
+
+function getHistDateFilter() {
+  // Returns { exactDate: 'DD Mon YYYY' } or null
+  const val = document.getElementById('histDate')?.value || '';
+  if (!val || val === '') return null;
+  const fmt = d => d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+  if (val === 'today') return { exact: fmt(new Date()) };
+  if (val === 'yesterday') {
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    return { exact: fmt(y) };
+  }
+  if (val === 'custom') {
+    const raw = document.getElementById('histDateCustom')?.value;
+    if (!raw) return null;
+    const d = new Date(raw);
+    return { exact: fmt(d) };
+  }
+  return null;
 }
 
 function histPage(delta) {
@@ -3700,35 +3931,26 @@ function histPage(delta) {
 }
 
 function renderHistory() {
-  // If data hasn't loaded yet, trigger a fresh load (async will call renderHistory when done)
-  if (histAllRows.length === 0) {
-    loadHistoryData();
-    return;
-  }
   histCurrentPage = 1;
-  const dateVal = document.getElementById('histDate')   ?.value || ''; // YYYY-MM-DD
   const year    = document.getElementById('histYear')   ?.value || '';
   const month   = document.getElementById('histMonth')  ?.value || '';
   const dealer  = document.getElementById('histDealer') ?.value || '';
   const section = document.getElementById('histSection')?.value || '';
   const status  = document.getElementById('histStatus') ?.value || '';
 
-  // Convert YYYY-MM-DD date picker value to "DD Mon YYYY" format for matching
-  let specificDate = '';
-  if (dateVal) {
-    const d = new Date(dateVal + 'T00:00:00');
-    specificDate = d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
-  }
+  const dateFilt = getHistDateFilter();
 
   histFiltered = histAllRows.filter(r => {
-    // Specific date overrides year/month filters
-    if (specificDate) return r.date === specificDate;
     // date format: "DD Mon YYYY" e.g. "02 Jun 2026"
-    if (year && !r.date.includes(year))  return false;
-    if (month) {
-      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const mName = monthNames[parseInt(month,10)-1];
-      if (!r.date.includes(mName)) return false;
+    if (dateFilt) {
+      if (r.date !== dateFilt.exact) return false;
+    } else {
+      if (year && !r.date.includes(year))  return false;
+      if (month) {
+        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+        const mName = monthNames[parseInt(month,10)-1];
+        if (!r.date.includes(mName)) return false;
+      }
     }
     if (dealer  && r.dealer  !== dealer)            return false;
     if (section && r.section !== section)           return false;
@@ -3905,6 +4127,72 @@ function renderHistoryTable() {
 let _autoRefreshTimer = null;
 const AUTO_REFRESH_MS = 60000; // 60 seconds
 
+/* ── MIDNIGHT DAILY RESET ── */
+let _midnightTimer = null;
+
+function scheduleMidnightReset() {
+  if (_midnightTimer) clearTimeout(_midnightTimer);
+  const now  = new Date();
+  const next = new Date(now);
+  next.setDate(now.getDate() + 1);
+  next.setHours(0, 0, 5, 0); // 00:00:05 next day
+  const msUntilMidnight = next - now;
+
+  _midnightTimer = setTimeout(() => {
+    performDailyReset();
+    scheduleMidnightReset(); // reschedule for next midnight
+  }, msUntilMidnight);
+}
+
+function performDailyReset() {
+  // 1. Clear all localStorage drafts (they are date-keyed so already stale, but clean up)
+  try {
+    Object.keys(localStorage).forEach(k => {
+      if (k.startsWith('nbs_draft_')) localStorage.removeItem(k);
+    });
+  } catch(e) {}
+
+  // 2. If a dealer is mid-session, show a toast and reset their form
+  if (currentDealer) {
+    showDayResetToast();
+    // Re-render so form is blank for new day
+    submissions = {};
+    renderChecklists();
+  }
+
+  // 3. If admin is viewing, refresh data silently
+  const adminDash = document.getElementById('adminDash');
+  if (adminDash && adminDash.classList.contains('active')) {
+    gasGet('getAll').then(all => {
+      submissions = {};
+      (all.subs || []).forEach(row => {
+        const key = row.key;
+        if (!submissions[key]) submissions[key] = { key, dealer: row.dealer, dealerName: row.dealerName, section: Number(row.section), sectionName: row.sectionName, data: [], time: row.time, date: row.date };
+        submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
+      });
+      renderAdmin();
+    }).catch(() => {});
+  }
+}
+
+function showDayResetToast() {
+  let toast = document.getElementById('dayResetToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'dayResetToast';
+    toast.style.cssText = `
+      position:fixed;top:72px;left:50%;transform:translateX(-50%);z-index:9999;
+      background:var(--accent);color:#fff;padding:12px 24px;border-radius:12px;
+      font-size:13px;font-weight:600;box-shadow:0 4px 24px rgba(0,0,0,0.4);
+      opacity:0;transition:opacity 0.4s;pointer-events:none;white-space:nowrap;
+    `;
+    document.body.appendChild(toast);
+  }
+  toast.textContent = '🌅 New day started — checklist has been reset.';
+  toast.style.opacity = '1';
+  setTimeout(() => { toast.style.opacity = '0'; }, 4000);
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
   _autoRefreshTimer = setInterval(async () => {
@@ -3950,37 +4238,29 @@ function stopAutoRefresh() {
 
 // ── Init ──
 window.addEventListener('DOMContentLoaded', () => {
-  // If we have a GAS URL already confirmed (sessionStorage), try to load immediately.
-  // Otherwise show the setup overlay so the user can enter their URL.
-  const storedUrl = (() => { try { return sessionStorage.getItem(GAS_URL_KEY); } catch(e) { return null; } })();
-  if (storedUrl && storedUrl.includes('script.google.com')) {
-    GAS_URL = storedUrl;
-    document.getElementById('sheetsSetupOverlay').style.display = 'none';
-    initApp().then(() => startAutoRefresh()).catch(err => {
-      console.warn('Auto-connect failed, showing setup overlay:', err);
-      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
-    });
-  } else if (GAS_URL_HARDCODED.includes('script.google.com')) {
-    // Try the hardcoded URL silently; show overlay on failure
-    GAS_URL = GAS_URL_HARDCODED;
-    document.getElementById('sheetsSetupOverlay').style.display = 'none';
-    initApp().then(() => {
-      // Confirm it worked — persist to sessionStorage
-      try { sessionStorage.setItem(GAS_URL_KEY, GAS_URL); } catch(e) {}
-      startAutoRefresh();
-    }).catch(err => {
-      console.warn('Hardcoded GAS URL failed, showing setup overlay:', err);
-      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
-    });
-  } else {
-    // No valid URL — show setup overlay
-    document.getElementById('sheetsSetupOverlay').style.display = 'flex';
-  }
+  // URL is hardcoded — never show the setup overlay.
+  document.getElementById('sheetsSetupOverlay').style.display = 'none';
+  initApp().then(() => { startAutoRefresh(); scheduleMidnightReset(); }).catch(err => {
+    console.warn('GAS connection failed:', err);
+  });
 });
 // ═══════════════════════════════════════════════════════════
 //  CHECKLIST ITEM MANAGER (Admin Panel)
 // ═══════════════════════════════════════════════════════════
 let clMgmtSection = 0; // currently active section in manager
+
+let clMgmtOpen = false;
+
+function toggleClMgmt() {
+  clMgmtOpen = !clMgmtOpen;
+  const body = document.getElementById('clMgmtBody');
+  const chevron = document.getElementById('clMgmtChevron');
+  const hint = document.getElementById('clMgmtExpandHint');
+  if (body) body.style.display = clMgmtOpen ? '' : 'none';
+  if (chevron) { chevron.style.transform = clMgmtOpen ? 'rotate(90deg)' : 'rotate(0deg)'; }
+  if (hint) hint.textContent = clMgmtOpen ? 'click to collapse' : 'click to expand';
+  if (clMgmtOpen) renderClMgmt();
+}
 
 function renderClMgmt() {
   // Build section tabs
@@ -4036,7 +4316,8 @@ function clAddItem() {
   CHECKLISTS[clMgmtSection].items.push(text);
   input.value = '';
   renderClMgmt();
-  // Auto-scroll to bottom of list
+  // Auto-save to Sheets immediately — this also creates the Checklists sheet if it doesn't exist
+  gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(e => console.warn('Auto-save failed:', e));
   const listEl = document.getElementById('clItemsList');
   if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: 'smooth' });
 }
@@ -4066,18 +4347,20 @@ function clRenameItem(idx, newText) {
 }
 
 async function clSaveChanges() {
-  // Re-render the dealer checklist views so they pick up the changes
-  if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
-  // If a dealer is logged in on the checklist view, re-render their checklist
-  if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
-    renderChecklists();
-  }
-  // Persist both checklists and dealer registry to Google Sheets
+  const btn = event?.target;
+  const originalText = btn ? btn.textContent : '';
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
   try {
-    await Promise.all([saveChecklists(), saveDealers()]);
-    showToast('Checklist saved to Google Sheets!', 'success');
+    await saveChecklists();
+    await saveDealers();
+    if (btn) { btn.textContent = '✓ Saved!'; btn.style.background = 'var(--green)'; }
+    setTimeout(() => {
+      if (btn) { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }
+    }, 2000);
+    alert('✓ Checklist saved to Google Sheets! All dealers will see updated tasks on next login.');
   } catch(e) {
-    showToast('Save failed — check GAS connection.', 'error');
+    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+    alert('❌ Save failed. Check your GAS URL and internet connection.\n\nError: ' + e.message);
     console.error('[clSaveChanges]', e);
   }
 }
@@ -4157,7 +4440,7 @@ async function clImportExcel(input) {
     });
 
     if (imported === 0) {
-      showToast('No matching section sheets found in this file.', 'error');
+      alert('No matching section sheets found in this file.');
       return;
     }
 
@@ -4166,13 +4449,10 @@ async function clImportExcel(input) {
     // Re-render dealer checklist if active
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
-    showToast(
-      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
-      'success'
-    );
+    alert(`✓ Imported ${imported} section${imported>1?'s':''} successfully! Now click "Save & Apply Changes" to push to Google Sheets.${skipped?' ('+skipped+' sheet(s) skipped)':''}`);
   } catch (err) {
     console.error('[Import]', err);
-    showToast('Failed to read Excel file. Make sure it is the NBS template format.', 'error');
+    alert('Failed to read Excel file. Make sure it is the NBS template format.');
   }
 }
 
@@ -4181,7 +4461,7 @@ function clDownloadTemplate(e) {
   e.preventDefault();
 
   if (typeof XLSX === 'undefined') {
-    showToast('Excel library not loaded yet — please wait a moment.', 'error');
+    alert('Excel library not loaded yet — please wait a moment.');
     return;
   }
 
@@ -4214,7 +4494,7 @@ function clDownloadTemplate(e) {
   });
 
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
-  showToast('Template downloaded!', 'success');
+  alert('Template downloaded!');
 }
 
 </script>
