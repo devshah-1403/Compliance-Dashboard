@@ -2510,27 +2510,19 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Primary: POST with JSON body to avoid GET URL length limits for large submissions.
-  // GAS doPost must be deployed (see updated Apps Script below).
-  // Falls back to GET-param encoding for small payloads if POST fails.
-  const u = GAS_URL + '?t=' + Date.now();
-  try {
-    const res = await fetch(u, {
-      method: 'POST',
-      redirect: 'follow',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(body)
-    });
-    const json = await res.json();
-    if (!json || json.error) throw new Error(json && json.error ? json.error : 'POST failed');
-    return json;
-  } catch(postErr) {
-    console.warn('POST failed, falling back to GET encoding:', postErr);
-    const payload = encodeURIComponent(JSON.stringify(body));
-    const uFb = GAS_URL + '?action=' + body.action + '&payload=' + payload + '&t=' + Date.now();
-    const res = await fetch(uFb, { redirect: 'follow' });
-    return res.json();
-  }
+  // GAS web apps redirect POST internally — response is always opaque.
+  // Use no-cors POST (fire & forget) then GET ping to confirm reachability.
+  await fetch(GAS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(body)
+  });
+  // Ping confirms GAS is alive; throws if network is down
+  const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
+  const pj = await ping.json();
+  if (pj && pj.error) throw new Error(pj.error);
+  return { ok: true };
 }
 
 /* ── DATA ── */
