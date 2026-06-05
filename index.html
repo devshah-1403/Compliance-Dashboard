@@ -3909,10 +3909,24 @@ async function fetchAndRenderHistory() {
   if (btn) { btn.textContent = '⏳ Fetching…'; btn.disabled = true; }
   try {
     const all = await gasGet('getAll');
-    // Rebuild histAllRows from latest sheet data
-    histAllRows = [];
+    const subs = all.subs || [];
+
+    // Rebuild histAllRows with normalized strings (same as loadHistoryData)
+    histAllRows = subs.map(row => ({
+      date:        String(row.date        || '').trim(),
+      time:        String(row.time        || '').trim(),
+      dealer:      String(row.dealer      || '').trim(),
+      dealerName:  String(row.dealerName  || '').trim(),
+      section:     String(row.section     || '').trim(),
+      sectionName: String(row.sectionName || '').trim(),
+      item:        String(row.item        || '').trim(),
+      status:      String(row.status      || '').trim(),
+      remarks:     String(row.remarks     || '').trim(),
+    }));
+
+    // Also rebuild submissions dict
     submissions = {};
-    (all.subs || []).forEach(row => {
+    subs.forEach(row => {
       const key = row.key;
       if (!submissions[key]) {
         submissions[key] = { key, dealer: row.dealer, dealerName: row.dealerName,
@@ -3920,13 +3934,16 @@ async function fetchAndRenderHistory() {
           data: [], time: row.time, date: row.date };
       }
       submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
-      histAllRows.push({
-        date: row.date, time: row.time,
-        dealer: row.dealer, dealerName: row.dealerName,
-        section: String(row.section), sectionName: row.sectionName,
-        item: row.item, status: row.status, remarks: row.remarks
-      });
     });
+
+    // Log date debug info to console
+    const uniqueDates = [...new Set(histAllRows.map(r => r.date))].sort();
+    const yest = new Date(); yest.setDate(yest.getDate()-1);
+    const yesterdayStr = yest.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+    console.log('[History] Fetched', histAllRows.length, 'rows');
+    console.log('[History] Unique dates in sheet:', uniqueDates);
+    console.log('[History] today() =', today(), '| yesterday =', yesterdayStr);
+
     renderHistory();
   } catch(e) {
     alert('Failed to fetch data: ' + e.message);
