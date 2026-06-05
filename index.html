@@ -2600,10 +2600,14 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets (comes bundled in getAll — no extra round-trip)
+    // Load checklists from Sheets — fully replace hardcoded defaults
     if (all.checklists && all.checklists.length > 0) {
+      // Replace entire CHECKLISTS array so hardcoded 15-item defaults never persist
       all.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i]) {
+          CHECKLISTS[i].name  = sec.name;
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
 
@@ -2777,7 +2781,10 @@ async function dealerLogin() {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i]) {
+          CHECKLISTS[i].name  = sec.name;
+          CHECKLISTS[i].items = sec.items;
+        }
       });
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
