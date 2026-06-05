@@ -2824,14 +2824,43 @@ async function dealerLogin() {
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
 
+  // Re-fetch today's submissions so restored data is fresh
+  try {
+    const fresh = await gasGet('getAll');
+    const todayDMY = today();
+    const todaySubs = (fresh.subs || []).filter(r => r.date === todayDMY);
+    // Rebuild only this dealer's submissions
+    todaySubs.forEach(row => {
+      const key = row.key;
+      if (row.dealer !== sel) return; // only this dealer
+      if (!submissions[key]) {
+        submissions[key] = {
+          key, dealer: row.dealer, dealerName: row.dealerName,
+          section: Number(row.section), sectionName: row.sectionName,
+          data: [], time: row.time, date: row.date
+        };
+      }
+      // Avoid duplicate pushes if key already populated from initApp
+      if (!submissions[key].data.find(d => d.item === row.item)) {
+        submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
+      }
+    });
+  } catch(e) { console.warn('[dealerLogin] fresh fetch failed:', e); }
+
   renderChecklists();
   setView('dealerDash');
 }
 
 function dealerLogout() {
+  // Clear in-memory dealer submissions so next login fetches fresh
+  if (currentDealer) {
+    Object.keys(submissions).forEach(k => {
+      if (k.startsWith(currentDealer + '_')) delete submissions[k];
+    });
+  }
   currentDealer = null;
   populateDealerSelect();
-  document.getElementById('dealerPass').value   = '';
+  document.getElementById('dealerPass').value = '';
   setView('dealerLogin');
 }
 
@@ -2899,7 +2928,53 @@ function renderChecklists() {
         </div>`;
       container.appendChild(row);
     });
+    // Restore any previously submitted values for this section
+    const subKey = `${currentDealer}_${si}`;
+    const sub = submissions[subKey];
+    if (sub && sub.data) {
+      let dataIdx = 0;
+      section.items.forEach((item, idx) => {
+        if (!perms[idx]) return;
+        const uid   = `s${si}_i${idx}_${currentDealer}`;
+        const entry = sub.data[dataIdx++];
+        if (!entry) return;
+        // Restore radio
+        if (entry.status) {
+          const radio = document.querySelector(`input[name="${uid}"][value="${entry.status}"]`);
+          if (radio) {
+            radio.checked = true;
+            // Apply visual state
+            const remEl = document.getElementById(`rem-${uid}`);
+            const hint  = document.getElementById(`hint-${uid}`);
+            if (entry.status === 'partial' || entry.status === 'notdone') {
+              if (remEl) remEl.classList.add('mandatory');
+              if (hint)  { hint.textContent = '* Remarks required for this status.'; hint.className = 'remarks-hint show required'; }
+            } else {
+              if (remEl) remEl.classList.remove('mandatory');
+              if (hint)  { hint.textContent = 'Optional: add a remark.'; hint.className = 'remarks-hint show'; }
+            }
+          }
+        }
+        // Restore remark
+        if (entry.remarks) {
+          const remEl = document.getElementById(`rem-${uid}`);
+          if (remEl) remEl.value = entry.remarks;
+        }
+      });
+    }
     updateProgress(si);
+  });
+  // After restoring all sections, update overall pct
+  updateOverallPct();
+  // Show submitted state on buttons
+  CHECKLISTS.forEach((_, si) => {
+    const subKey = `${currentDealer}_${si}`;
+    if (submissions[subKey]) {
+      const msgEl = document.getElementById(`submit-msg-${si}`);
+      const btnEl = document.getElementById(`submit-btn-${si}`);
+      if (msgEl) msgEl.classList.add('show');
+      if (btnEl) { btnEl.textContent = '✓ Submitted'; }
+    }
   });
 }
 
@@ -2948,8 +3023,10 @@ function updateProgress(si) {
 
 function updateOverallPct() {
   const dealer = dealerRegistry[currentDealer];
+  const assignedSections = dealer && dealer.sections ? dealer.sections : [0,1,2];
   let total = 0, filled = 0;
   CHECKLISTS.forEach((section, si) => {
+    if (!assignedSections.includes(si)) return; // only count assigned sections
     const perms = dealer ? getItemPerms(dealer, si) : section.items.map(() => true);
     section.items.forEach((_, idx) => {
       if (!perms[idx]) return;
@@ -2961,6 +3038,8 @@ function updateOverallPct() {
   const pct = total ? Math.round(filled / total * 100) : 0;
   const el = document.getElementById('overallPct');
   if (el) el.textContent = pct + '%';
+  // Also colour it green when 100%
+  if (el) el.style.color = pct === 100 ? 'var(--green)' : 'var(--accent2)';
 }
 
 function switchTab(idx) {
