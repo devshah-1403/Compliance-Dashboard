@@ -3848,7 +3848,7 @@ const HIST_PAGE_SIZE = 50;
 /* Called once on init — pull full Submissions sheet then seed year picker */
 async function loadHistoryData() {
   try {
-    const all = await gasGet('getAll');
+    const all = await gasGet('getAllHistory');
     const subs = all.subs || [];
 
     // Build flat rows from Submissions sheet
@@ -3908,7 +3908,7 @@ async function fetchAndRenderHistory() {
   const btn = document.querySelector('[onclick="fetchAndRenderHistory()"]');
   if (btn) { btn.textContent = '⏳ Fetching…'; btn.disabled = true; }
   try {
-    const all = await gasGet('getAll');
+    const all = await gasGet('getAllHistory');
     const subs = all.subs || [];
 
     // Rebuild histAllRows with normalized strings (same as loadHistoryData)
