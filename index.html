@@ -1966,10 +1966,26 @@ body {
 
       <!-- ─── OVERVIEW PANEL ─── -->
       <div class="admin-panel active" id="panel-overview">
-        <div class="panel-header">
-          <h2>Compliance Overview</h2>
-          <p>Today's submission summary across all dealers and checklist categories.</p>
+        <div class="panel-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1rem">
+          <div>
+            <h2>Compliance Overview</h2>
+            <p id="overviewSubtitle">Today's submission summary across all dealers and checklist categories.</p>
+          </div>
+          <!-- DATE FILTER BAR -->
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:2px">
+            <div style="display:flex;align-items:center;gap:6px;background:var(--ink3);border:1px solid var(--border2);border-radius:var(--radius-sm);padding:5px 10px">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="1" y="2.5" width="11" height="9.5" rx="1.5" stroke="var(--text3)" stroke-width="1.2"/><path d="M4.5 1v3M8.5 1v3M1 6h11" stroke="var(--text3)" stroke-width="1.2" stroke-linecap="round"/></svg>
+              <input type="date" id="overviewDate" style="background:transparent;border:none;outline:none;font-size:12px;font-family:inherit;color:var(--text);cursor:pointer;min-width:110px" onchange="onOverviewDateChange()">
+            </div>
+            <select id="overviewDealerFilter" class="filter-select" style="min-width:130px;font-size:12px;padding:6px 10px" onchange="renderAdmin()">
+              <option value="">All Dealers</option>
+            </select>
+            <button class="btn-sm" onclick="resetOverviewDate()" style="font-size:11px;color:var(--text3)" title="Reset to today">Today</button>
+          </div>
         </div>
+
+        <!-- DATE NAV STRIP -->
+        <div id="overviewDateStrip" style="display:flex;gap:6px;margin-bottom:1.25rem;flex-wrap:wrap"></div>
 
         <!-- KPI GRID -->
         <div class="kpi-grid" id="adminStats"></div>
@@ -1981,7 +1997,6 @@ body {
             <div class="donut-wrap" id="donutWrap">
               <svg width="120" height="120" viewBox="0 0 120 120" id="donutSvg">
                 <circle cx="60" cy="60" r="50" fill="none" stroke="var(--ink4)" stroke-width="16"/>
-                <!-- Arcs injected by JS -->
               </svg>
               <div class="donut-legend" id="donutLegend"></div>
             </div>
@@ -2665,6 +2680,23 @@ async function initApp() {
 
     refreshDealerMaps();
     populateDealerSelect();
+    // Pre-load full history so the Overview date strip can show past dates
+    try {
+      const hist = await gasGet('getAllHistory');
+      const hsubs = hist.subs || [];
+      histAllRows = hsubs.map(row => ({
+        date:       normalizeDate(row.date),
+        dealer:     String(row.dealer || '').trim(),
+        dealerName: String(row.dealerName || '').trim(),
+        section:    String(row.section || '').trim(),
+        sectionName:String(row.sectionName || '').trim(),
+        itemIdx:    row.itemIdx,
+        item:       String(row.item   || '').trim(),
+        status:     String(row.status || '').trim(),
+        remarks:    String(row.remarks|| '').trim(),
+        time:       normalizeTime(row.time),
+      }));
+    } catch(e) { console.warn('[initApp] history preload failed:', e); }
   } catch(e) {
     console.error('Init error', e);
     showLoadingOverlay(false);
@@ -3009,21 +3041,165 @@ function switchPanel(id, el) {
   if (id === 'manage') renderClMgmt();
 }
 
+/* ── Overview date helpers ── */
+function todayISO() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function isoToDMY(iso) {
+  // "2026-06-04" → "04 Jun 2026"
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  const day   = String(d.getDate()).padStart(2,'0');
+  const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  return `${day} ${month} ${d.getFullYear()}`;
+}
+
+function dmyToISO(dmy) {
+  // "04 Jun 2026" → "2026-06-04"
+  if (!dmy) return '';
+  const months = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
+  const parts = dmy.trim().split(' ');
+  if (parts.length !== 3) return '';
+  return `${parts[2]}-${months[parts[1]] || '01'}-${parts[0]}`;
+}
+
+function getOverviewDateISO() {
+  const el = document.getElementById('overviewDate');
+  return el ? (el.value || todayISO()) : todayISO();
+}
+
+function onOverviewDateChange() {
+  renderAdmin();
+}
+
+function resetOverviewDate() {
+  const el = document.getElementById('overviewDate');
+  if (el) el.value = todayISO();
+  renderAdmin();
+}
+
+function renderOverviewDateStrip() {
+  const strip = document.getElementById('overviewDateStrip');
+  if (!strip) return;
+  // Collect all unique dates from histAllRows + today's submissions
+  const allDates = new Set();
+  histAllRows.forEach(r => { if (r.date) allDates.add(r.date); });
+  Object.values(submissions).forEach(s => { if (s.date) allDates.add(s.date); });
+  const todayDMY = isoToDMY(todayISO());
+  allDates.add(todayDMY);
+
+  // Sort descending, show last 7 unique dates
+  const sorted = Array.from(allDates)
+    .filter(d => d && d.length > 3)
+    .sort((a, b) => parseDMY(b) - parseDMY(a))
+    .slice(0, 7);
+
+  const selectedISO = getOverviewDateISO();
+  const selectedDMY = isoToDMY(selectedISO);
+
+  strip.innerHTML = sorted.map(dmy => {
+    const iso = dmyToISO(dmy);
+    const isSelected = dmy === selectedDMY;
+    const isToday = dmy === todayDMY;
+    return `<button onclick="document.getElementById('overviewDate').value='${iso}';renderAdmin()" style="
+      padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${isSelected ? 'var(--accent)' : 'var(--border2)'};
+      background:${isSelected ? 'var(--accent-dim)' : 'var(--glass)'};
+      color:${isSelected ? 'var(--accent2)' : 'var(--text3)'};
+      font-family:'JetBrains Mono',monospace;white-space:nowrap;transition:all .12s"
+    >${isToday ? '● Today' : dmy}</button>`;
+  }).join('');
+}
+
+function buildOverviewRows() {
+  const selectedISO = getOverviewDateISO();
+  const selectedDMY = isoToDMY(selectedISO);
+  const todayDMY    = isoToDMY(todayISO());
+  const dealerFilter = document.getElementById('overviewDealerFilter')?.value || '';
+
+  let rows = [];
+
+  if (selectedDMY === todayDMY) {
+    // Use live submissions for today
+    Object.values(submissions).forEach(sub => {
+      sub.data.forEach((d, idx) => {
+        rows.push({
+          dealer: sub.dealer, dealerName: sub.dealerName,
+          section: sub.section, sectionName: sub.sectionName,
+          itemIdx: idx+1, item: d.item,
+          status: d.status, remarks: d.remarks,
+          time: sub.time, date: sub.date
+        });
+      });
+    });
+  } else {
+    // Use historical rows for the selected date
+    rows = histAllRows.filter(r => r.date === selectedDMY).map(r => ({
+      dealer: r.dealer, dealerName: r.dealerName,
+      section: Number(r.section), sectionName: r.sectionName,
+      itemIdx: r.itemIdx, item: r.item,
+      status: r.status, remarks: r.remarks,
+      time: r.time, date: r.date
+    }));
+  }
+
+  if (dealerFilter) rows = rows.filter(r => r.dealer === dealerFilter);
+  return rows;
+}
+
+function refreshOverviewDealerDropdown() {
+  const sel = document.getElementById('overviewDealerFilter');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">All Dealers</option>';
+  Object.entries(dealerRegistry).forEach(([id, d]) => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = `${id} — ${d.name}`;
+    sel.appendChild(opt);
+  });
+  sel.value = prev;
+}
+
 function renderAdmin() {
   refreshDealerMaps();
   refreshFilterDropdowns();
-  const allRows = buildRows();
-  const f = getFilters();
-  let rows = applyFilters(allRows, f);
+  refreshOverviewDealerDropdown();
 
-  // update badges
-  document.getElementById('subCountBadge').textContent = allRows.length;
-  renderKPIs(rows);
-  renderTable(rows);
-  renderDealerSummary();
-  renderCharts(allRows);
+  // Set today as default date if not set
+  const dateEl = document.getElementById('overviewDate');
+  if (dateEl && !dateEl.value) dateEl.value = todayISO();
+
+  // Overview uses its own date-aware row builder
+  const overviewRows = buildOverviewRows();
+  const selectedISO = getOverviewDateISO();
+  const selectedDMY = isoToDMY(selectedISO);
+  const todayDMY    = isoToDMY(todayISO());
+  const isToday     = selectedDMY === todayDMY;
+
+  // Update subtitle
+  const subtitle = document.getElementById('overviewSubtitle');
+  if (subtitle) {
+    subtitle.textContent = isToday
+      ? "Today's submission summary across all dealers and checklist categories."
+      : `Showing submissions for ${selectedDMY} — historical view.`;
+  }
+
+  // Badge uses today's live count
+  const allTodayRows = buildRows();
+  document.getElementById('subCountBadge').textContent = allTodayRows.length;
+
+  renderOverviewDateStrip();
+  renderKPIs(overviewRows);
+  renderCharts(overviewRows);
+  renderDealerSummaryForDate(overviewRows);
   renderAlerts();
   renderDealerManagement();
+
+  // Submissions panel still uses today's data + its own filters
+  const f = getFilters();
+  let rows = applyFilters(allTodayRows, f);
+  renderTable(rows);
 }
 
 function refreshFilterDropdowns() {
@@ -3040,6 +3216,7 @@ function refreshFilterDropdowns() {
 }
 
 function buildRows() {
+  // Builds rows from today's live submissions (used by Submissions panel)
   let rows = [];
   Object.values(submissions).forEach(sub => {
     sub.data.forEach((d, idx) => {
@@ -3262,6 +3439,60 @@ function renderDealerSummary() {
           <span>${pComp}% complete</span>
         </div>
         <div style="font-size:11px;color:var(--text3);margin-top:6px">${sections}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderDealerSummaryForDate(rows) {
+  // Dealer summary cards on Overview, driven by the passed rows (date-filtered)
+  const grid = document.getElementById('dealerSummaryGrid');
+  if (!grid) return; // panel may not be visible
+  const dealers = Object.keys(DEALER_NAMES);
+  grid.innerHTML = dealers.map(did => {
+    const dRows = rows.filter(r => r.dealer === did);
+    if (!dRows.length) return `
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <span class="dealer-pill ${DEALER_CLASSES[did]}">${did}</span>
+          <span class="ds-time">No submission</span>
+        </div>
+        <div class="ds-name">${DEALER_NAMES[did]}</div>
+        <div class="ds-bar"><div class="ds-seg" style="width:100%;background:var(--ink4)"></div></div>
+        <div style="font-size:12px;color:var(--text3)">No checklists submitted for this date.</div>
+      </div>`;
+    let comp=0, part=0, nd=0, tot=dRows.length;
+    dRows.forEach(d => {
+      if (d.status==='completed') comp++;
+      else if (d.status==='partial') part++;
+      else if (d.status==='notdone') nd++;
+    });
+    const pComp = tot ? Math.round(comp/tot*100) : 0;
+    const pPart = tot ? Math.round(part/tot*100) : 0;
+    const pNd   = tot ? Math.round(nd/tot*100)   : 0;
+    const lastTime = dRows[dRows.length-1]?.time || '—';
+    const sectionNames = [...new Set(dRows.map(r => r.sectionName))].join(' · ');
+    return `
+      <div class="ds-card">
+        <div class="ds-card-top">
+          <span class="dealer-pill ${DEALER_CLASSES[did]}">${did}</span>
+          <span class="ds-time">${lastTime}</span>
+        </div>
+        <div class="ds-name">${DEALER_NAMES[did]}</div>
+        <div class="ds-bar">
+          <div class="ds-seg" style="width:${pComp}%;background:var(--green)"></div>
+          <div class="ds-seg" style="width:${pPart}%;background:var(--amber)"></div>
+          <div class="ds-seg" style="width:${pNd}%;background:var(--red)"></div>
+        </div>
+        <div class="ds-counts">
+          <div class="ds-count"><div class="ds-dot" style="background:var(--green)"></div>${comp} done</div>
+          <div class="ds-count"><div class="ds-dot" style="background:var(--amber)"></div>${part} partial</div>
+          <div class="ds-count"><div class="ds-dot" style="background:var(--red)"></div>${nd} not done</div>
+        </div>
+        <div class="ds-meta">
+          <span>${tot} items</span>
+          <span>${pComp}% complete</span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">${sectionNames}</div>
       </div>`;
   }).join('');
 }
