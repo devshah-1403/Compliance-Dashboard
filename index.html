@@ -3510,7 +3510,18 @@ function renderKPIs(rows) {
 
 function renderCharts(rows) {
   /* Donut */
-  const total   = rows.length || 1;
+  const total   = rows.length;
+  if (total === 0) {
+    document.getElementById('donutSvg').innerHTML =
+      `<circle cx="60" cy="60" r="50" fill="none" stroke="var(--ink4)" stroke-width="16"/>
+       <text x="60" y="55" text-anchor="middle" font-size="14" fill="var(--text3)" font-family="Inter">No</text>
+       <text x="60" y="72" text-anchor="middle" font-size="14" fill="var(--text3)" font-family="Inter">data</text>`;
+    document.getElementById('donutLegend').innerHTML = '<div style="color:var(--text3);font-size:12px">No submissions yet</div>';
+    document.getElementById('dealerBars').innerHTML = Object.keys(DEALER_NAMES).map(did =>
+      `<div class="mini-bar-row"><div class="mini-bar-label"><span>${DEALER_NAMES[did]}</span><span style="font-family:'JetBrains Mono',monospace;color:var(--text3)">0%</span></div><div class="mini-bar-track"><div class="mini-bar-fill" style="width:0%"></div></div></div>`
+    ).join('');
+    return;
+  }
   const done    = rows.filter(r => r.status === 'completed').length;
   const partial = rows.filter(r => r.status === 'partial').length;
   const notdone = rows.filter(r => r.status === 'notdone').length;
@@ -4392,13 +4403,14 @@ function startAutoRefresh() {
     const adminDash = document.getElementById('adminDash');
     if (!adminDash || !adminDash.classList.contains('active')) return;
     try {
-      const all = await gasGet('getAll');
-      // Only update if Sheets returned actual data — never wipe on empty response
+      // Use getAllHistory which returns ALL subs; safer than getAll which may return stale dealers
+      const all = await gasGet('getAllHistory');
       const _arn = new Date(Date.now() + 5.5*60*60*1000);
       const _artd = `${String(_arn.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_arn.getUTCMonth()]} ${_arn.getUTCFullYear()}`;
       const todayRows = (all.subs || []).filter(r => normalizeDate(r.date) === _artd);
-      if (todayRows.length > 0 || Object.keys(submissions).length === 0) {
-        // Only rebuild if we got data back, OR submissions is already empty (first load)
+      // CRITICAL: Only wipe+rebuild if Sheets returned actual rows for today.
+      // If todayRows is empty it means GAS returned nothing / network blip — keep existing data.
+      if (todayRows.length > 0) {
         submissions = {};
         todayRows.forEach(row => {
           const key = String(row.key || `${row.dealer}_${row.section}`).trim();
