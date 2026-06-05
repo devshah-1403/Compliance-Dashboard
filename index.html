@@ -2211,11 +2211,14 @@ body {
 
         <!-- Manage Checklist Items Card -->
         <div class="table-card" style="margin-bottom:1.5rem">
-          <div class="table-card-header">
+          <div class="table-card-header" onclick="toggleClMgmt()" style="cursor:pointer;user-select:none" title="Click to collapse / expand">
             <span class="table-card-title">Manage Checklist Items</span>
-            <span class="table-count" id="clMgmtCount"></span>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span class="table-count" id="clMgmtCount"></span>
+              <span id="clMgmtChevron" style="font-size:13px;color:var(--text3);transition:transform .25s;display:inline-block">▾</span>
+            </div>
           </div>
-          <div style="padding:1.25rem">
+          <div id="clMgmtBody" style="padding:1.25rem">
             <!-- Section Tabs -->
             <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap" id="clMgmtTabs"></div>
             <!-- Add Item Row -->
@@ -4238,6 +4241,36 @@ window.addEventListener('DOMContentLoaded', () => {
 //  CHECKLIST ITEM MANAGER (Admin Panel)
 // ═══════════════════════════════════════════════════════════
 let clMgmtSection = 0; // currently active section in manager
+
+function toggleClMgmt() {
+  const body    = document.getElementById('clMgmtBody');
+  const chevron = document.getElementById('clMgmtChevron');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.style.overflow  = 'hidden';
+    body.style.transition = 'max-height .3s ease, opacity .25s ease';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = '0';
+      body.style.opacity   = '0';
+    });
+    setTimeout(() => { body.style.display = 'none'; }, 300);
+    chevron.style.transform = 'rotate(-90deg)';
+  } else {
+    body.style.display   = 'block';
+    body.style.maxHeight = '0';
+    body.style.opacity   = '0';
+    body.style.overflow  = 'hidden';
+    body.style.transition = 'max-height .35s ease, opacity .25s ease';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = body.scrollHeight + 2000 + 'px';
+      body.style.opacity   = '1';
+    });
+    setTimeout(() => { body.style.overflow = 'visible'; body.style.maxHeight = 'none'; }, 380);
+    chevron.style.transform = 'rotate(0deg)';
+  }
+}
 
 function renderClMgmt() {
   // Build section tabs
