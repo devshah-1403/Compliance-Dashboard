@@ -3592,12 +3592,16 @@ const HIST_PAGE_SIZE = 50;
 
 /* Called once on init — pull full Submissions sheet then seed year picker */
 async function loadHistoryData() {
+  // Show loading state immediately
+  const tbody = document.getElementById('histTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">⏳ Loading history from Google Sheets…</td></tr>';
+  const searchBtn = document.querySelector('#panel-history .btn-primary');
+  if (searchBtn) { searchBtn.disabled = true; searchBtn.textContent = '⏳ Loading…'; }
+
   try {
-    // Use getAllHistory — returns ALL submissions across all dates (not today-only like getAll)
     const res = await gasGet('getAllHistory');
     const subs = res.subs || [];
 
-    // Build flat rows from Submissions sheet
     histAllRows = subs.map(row => ({
       date:       String(row.date   || '').trim(),
       dealer:     String(row.dealer || '').trim(),
@@ -3611,9 +3615,12 @@ async function loadHistoryData() {
       time:       String(row.time   || '').trim(),
     }));
 
-    initHistoryFilters();
+    initHistoryFilters(); // populates dropdowns and calls renderHistory()
   } catch(e) {
     console.warn('loadHistoryData failed:', e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">❌ Failed to load history. Check GAS URL in Settings.</td></tr>';
+  } finally {
+    if (searchBtn) { searchBtn.disabled = false; searchBtn.textContent = '🔍 Search'; }
   }
 }
 
@@ -3655,6 +3662,11 @@ function histPage(delta) {
 }
 
 function renderHistory() {
+  // If data hasn't loaded yet, trigger a fresh load (async will call renderHistory when done)
+  if (histAllRows.length === 0) {
+    loadHistoryData();
+    return;
+  }
   histCurrentPage = 1;
   const dateVal = document.getElementById('histDate')   ?.value || ''; // YYYY-MM-DD
   const year    = document.getElementById('histYear')   ?.value || '';
