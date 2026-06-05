@@ -3940,9 +3940,14 @@ async function fetchAndRenderHistory() {
     const uniqueDates = [...new Set(histAllRows.map(r => r.date))].sort();
     const yest = new Date(); yest.setDate(yest.getDate()-1);
     const yesterdayStr = yest.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+    console.log('[History] getAll response keys:', Object.keys(all));
+    console.log('[History] subs array length:', (all.subs||[]).length);
     console.log('[History] Fetched', histAllRows.length, 'rows');
     console.log('[History] Unique dates in sheet:', uniqueDates);
     console.log('[History] today() =', today(), '| yesterday =', yesterdayStr);
+    if (histAllRows.length === 0) {
+      console.warn('[History] WARNING: 0 rows — raw all.subs sample:', JSON.stringify((all.subs||[]).slice(0,2)));
+    }
 
     renderHistory();
   } catch(e) {
