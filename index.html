@@ -2824,15 +2824,15 @@ async function dealerLogin() {
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
 
-  // Re-fetch today's submissions so restored data is fresh
+  // Re-fetch today's submissions fresh from Sheets for this dealer
   try {
     const fresh = await gasGet('getAll');
-    const todayDMY = today();
-    const todaySubs = (fresh.subs || []).filter(r => r.date === todayDMY);
-    // Rebuild only this dealer's submissions
-    todaySubs.forEach(row => {
-      const key = row.key;
-      if (row.dealer !== sel) return; // only this dealer
+    const allSubs = fresh.subs || [];
+    // Wipe and fully rebuild this dealer's submissions from Sheets data
+    Object.keys(submissions).forEach(k => { if (k.startsWith(sel + '_')) delete submissions[k]; });
+    allSubs.forEach(row => {
+      if (String(row.dealer).trim() !== sel) return;
+      const key = String(row.key || '').trim() || `${row.dealer}_${row.section}`;
       if (!submissions[key]) {
         submissions[key] = {
           key, dealer: row.dealer, dealerName: row.dealerName,
@@ -2840,10 +2840,7 @@ async function dealerLogin() {
           data: [], time: row.time, date: row.date
         };
       }
-      // Avoid duplicate pushes if key already populated from initApp
-      if (!submissions[key].data.find(d => d.item === row.item)) {
-        submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
-      }
+      submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
     });
   } catch(e) { console.warn('[dealerLogin] fresh fetch failed:', e); }
 
@@ -2928,22 +2925,23 @@ function renderChecklists() {
         </div>`;
       container.appendChild(row);
     });
-    // Restore any previously submitted values for this section
+    // Restore any previously submitted values for this section (match by item text)
     const subKey = `${currentDealer}_${si}`;
     const sub = submissions[subKey];
-    if (sub && sub.data) {
-      let dataIdx = 0;
+    if (sub && sub.data && sub.data.length) {
+      // Build a lookup map: item text → {status, remarks}
+      const lookup = {};
+      sub.data.forEach(e => { if (e.item) lookup[e.item.trim()] = e; });
       section.items.forEach((item, idx) => {
         if (!perms[idx]) return;
         const uid   = `s${si}_i${idx}_${currentDealer}`;
-        const entry = sub.data[dataIdx++];
+        const entry = lookup[item.trim()];
         if (!entry) return;
         // Restore radio
         if (entry.status) {
           const radio = document.querySelector(`input[name="${uid}"][value="${entry.status}"]`);
           if (radio) {
             radio.checked = true;
-            // Apply visual state
             const remEl = document.getElementById(`rem-${uid}`);
             const hint  = document.getElementById(`hint-${uid}`);
             if (entry.status === 'partial' || entry.status === 'notdone') {
