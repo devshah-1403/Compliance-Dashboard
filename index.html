@@ -2214,12 +2214,12 @@ body {
         <div class="history-controls">
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Year</label>
-            <select class="filter-select" id="histYear" onchange="renderHistory()">
+            <select class="filter-select" id="histYear">
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Month</label>
-            <select class="filter-select" id="histMonth" onchange="renderHistory()">
+            <select class="filter-select" id="histMonth">
               <option value="">All Months</option>
               <option value="01">January</option><option value="02">February</option>
               <option value="03">March</option><option value="04">April</option>
@@ -2231,13 +2231,13 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Dealer</label>
-            <select class="filter-select" id="histDealer" onchange="renderHistory()">
+            <select class="filter-select" id="histDealer">
               <option value="">All Dealers</option>
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Section</label>
-            <select class="filter-select" id="histSection" onchange="renderHistory()">
+            <select class="filter-select" id="histSection">
               <option value="">All Sections</option>
               <option value="0">Dealer Compliance</option>
               <option value="1">Back Office Ops</option>
@@ -2246,7 +2246,7 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Status</label>
-            <select class="filter-select" id="histStatus" onchange="renderHistory()">
+            <select class="filter-select" id="histStatus">
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
               <option value="partial">Partial Done</option>
@@ -2264,9 +2264,15 @@ body {
           </div>
           <div class="history-ctrl-group" id="histDateCustomGroup" style="display:none">
             <label class="history-ctrl-label">Exact Date</label>
-            <input type="date" class="filter-select" id="histDateCustom" onchange="renderHistory()" style="padding:6px 10px;height:auto">
+            <input type="date" class="filter-select" id="histDateCustom" style="padding:6px 10px;height:auto">
           </div>
-          <button class="btn-sm" onclick="clearHistoryFilters()" style="margin-top:18px;color:var(--text3)">Clear</button>
+          <div style="display:flex;gap:8px;align-items:flex-end;margin-top:0">
+            <button class="btn-primary" onclick="fetchAndRenderHistory()" style="margin-top:18px;padding:8px 20px;font-size:13px;display:flex;align-items:center;gap:6px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              Search
+            </button>
+            <button class="btn-sm" onclick="clearHistoryFilters()" style="margin-top:18px;color:var(--text3)">Clear</button>
+          </div>
         </div>
 
         <!-- Summary KPI strip -->
@@ -3896,6 +3902,40 @@ function clearHistoryFilters() {
   if (cg) cg.style.display = 'none';
   histCurrentPage = 1;
   renderHistory();
+}
+
+async function fetchAndRenderHistory() {
+  const btn = document.querySelector('[onclick="fetchAndRenderHistory()"]');
+  if (btn) { btn.textContent = '⏳ Fetching…'; btn.disabled = true; }
+  try {
+    const all = await gasGet('getAll');
+    // Rebuild histAllRows from latest sheet data
+    histAllRows = [];
+    submissions = {};
+    (all.subs || []).forEach(row => {
+      const key = row.key;
+      if (!submissions[key]) {
+        submissions[key] = { key, dealer: row.dealer, dealerName: row.dealerName,
+          section: Number(row.section), sectionName: row.sectionName,
+          data: [], time: row.time, date: row.date };
+      }
+      submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
+      histAllRows.push({
+        date: row.date, time: row.time,
+        dealer: row.dealer, dealerName: row.dealerName,
+        section: String(row.section), sectionName: row.sectionName,
+        item: row.item, status: row.status, remarks: row.remarks
+      });
+    });
+    renderHistory();
+  } catch(e) {
+    alert('Failed to fetch data: ' + e.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Search';
+    }
+  }
 }
 
 function applyHistDatePreset() {
