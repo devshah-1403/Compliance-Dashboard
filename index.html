@@ -3211,18 +3211,25 @@ async function switchPanel(id, el) {
     const fresh = await gasGet('getAll');
     const _now = new Date(Date.now() + 5.5*60*60*1000);
     const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
-    submissions = {};
-    (fresh.subs || []).filter(r => normalizeDate(r.date) === _td).forEach(row => {
-      const key = String(row.key || `${row.dealer}_${row.section}`).trim();
-      if (!submissions[key]) {
-        submissions[key] = {
-          key, dealer: row.dealer, dealerName: row.dealerName,
-          section: Number(row.section), sectionName: row.sectionName,
-          data: [], time: row.time, date: row.date
-        };
-      }
-      submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
-    });
+    const _tdRows = (fresh.subs || []).filter(r => normalizeDate(r.date) === _td);
+    if (_tdRows.length > 0 || Object.keys(submissions).length === 0) {
+      submissions = {};
+      _tdRows.forEach(row => {
+        const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+        if (!submissions[key]) {
+          submissions[key] = {
+            key, dealer: row.dealer, dealerName: row.dealerName,
+            section: Number(row.section), sectionName: row.sectionName,
+            data: [], time: normalizeTime(row.time), date: normalizeDate(row.date)
+          };
+        }
+        submissions[key].data.push({
+          item:    String(row.item    || '').trim(),
+          status:  String(row.status  || '').trim(),
+          remarks: String(row.remarks || '').trim()
+        });
+      });
+    }
     console.log('[switchPanel] subs loaded:', Object.keys(submissions).length);
   } catch(e) { console.warn('[switchPanel] fetch failed:', e); }
   renderAdmin();
@@ -3353,18 +3360,25 @@ async function refreshAdminData() {
     const fresh = await gasGet('getAll');
     const _now = new Date(Date.now() + 5.5*60*60*1000);
     const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
-    submissions = {};
-    (fresh.subs || []).filter(r => normalizeDate(r.date) === _td).forEach(row => {
-      const key = String(row.key || `${row.dealer}_${row.section}`).trim();
-      if (!submissions[key]) {
-        submissions[key] = {
-          key, dealer: row.dealer, dealerName: row.dealerName,
-          section: Number(row.section), sectionName: row.sectionName,
-          data: [], time: row.time, date: row.date
-        };
-      }
-      submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
-    });
+    const _refRows = (fresh.subs || []).filter(r => normalizeDate(r.date) === _td);
+    if (_refRows.length > 0 || Object.keys(submissions).length === 0) {
+      submissions = {};
+      _refRows.forEach(row => {
+        const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+        if (!submissions[key]) {
+          submissions[key] = {
+            key, dealer: row.dealer, dealerName: row.dealerName,
+            section: Number(row.section), sectionName: row.sectionName,
+            data: [], time: normalizeTime(row.time), date: normalizeDate(row.date)
+          };
+        }
+        submissions[key].data.push({
+          item:    String(row.item    || '').trim(),
+          status:  String(row.status  || '').trim(),
+          remarks: String(row.remarks || '').trim()
+        });
+      });
+    }
     console.log('[refreshAdmin] subs:', Object.keys(submissions).length);
   } catch(e) { console.warn('[refreshAdminData] fetch failed:', e); }
   renderAdmin();
@@ -4379,26 +4393,34 @@ function startAutoRefresh() {
     if (!adminDash || !adminDash.classList.contains('active')) return;
     try {
       const all = await gasGet('getAll');
-      // Rebuild submissions from latest Sheets data
+      // Only update if Sheets returned actual data — never wipe on empty response
       const _arn = new Date(Date.now() + 5.5*60*60*1000);
       const _artd = `${String(_arn.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_arn.getUTCMonth()]} ${_arn.getUTCFullYear()}`;
-      submissions = {};
-      (all.subs || []).filter(r => normalizeDate(r.date) === _artd).forEach(row => {
-        const key = String(row.key || `${row.dealer}_${row.section}`).trim();
-        if (!submissions[key]) {
-          submissions[key] = {
-            key,
-            dealer: row.dealer,
-            dealerName: row.dealerName,
-            section: Number(row.section),
-            sectionName: row.sectionName,
-            data: [],
-            time: row.time,
-            date: row.date
-          };
-        }
-        submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
-      });
+      const todayRows = (all.subs || []).filter(r => normalizeDate(r.date) === _artd);
+      if (todayRows.length > 0 || Object.keys(submissions).length === 0) {
+        // Only rebuild if we got data back, OR submissions is already empty (first load)
+        submissions = {};
+        todayRows.forEach(row => {
+          const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+          if (!submissions[key]) {
+            submissions[key] = {
+              key,
+              dealer: row.dealer,
+              dealerName: row.dealerName,
+              section: Number(row.section),
+              sectionName: row.sectionName,
+              data: [],
+              time: normalizeTime(row.time),
+              date: normalizeDate(row.date)
+            };
+          }
+          submissions[key].data.push({
+            item:    String(row.item    || '').trim(),
+            status:  String(row.status  || '').trim(),
+            remarks: String(row.remarks || '').trim()
+          });
+        });
+      }
       renderAdmin();
       // Briefly flash the LIVE label to signal auto-refresh fired
       const liveLabel = document.querySelector('.live-label');
