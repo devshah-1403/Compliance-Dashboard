@@ -2343,87 +2343,111 @@ const GAS_CODE = `
 const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 function doGet(e) {
-  const action  = e.parameter.action;
-  const payload = e.parameter.payload ? JSON.parse(decodeURIComponent(e.parameter.payload)) : null;
-  return _handle(action, payload);
-}
-
-// doPost handles large payloads (e.g. full checklist submissions) sent as JSON body
-function doPost(e) {
-  let body = {};
-  try { body = JSON.parse(e.postData.contents); } catch(err) { body = {}; }
-  return _handle(body.action, body);
-}
-
-function _handle(action, payload) {
-  let result;
+  const action = e.parameter.action;
   try {
-    if (action === 'ping')              result = { ok: true };
-    else if (action === 'getAll')       result = getAll();
-    else if (action === 'getAllHistory') result = getAllHistory();
-    else if (action === 'saveDealers')        result = saveDealers(payload.data);
-    else if (action === 'saveAdmin')          result = saveAdmin(payload.data);
-    else if (action === 'saveSubmission')     result = saveSubmission(payload.data);
-    else if (action === 'clearSubmissions')   result = clearSubmissions();
-    else if (action === 'saveChecklists')     result = saveChecklists(payload.data);
-    else if (action === 'getChecklists')      result = getChecklists();
-    // Legacy: payload nested inside GET param
-    else if (payload && payload.action) {
-      if (payload.action === 'saveDealers')        result = saveDealers(payload.data);
-      else if (payload.action === 'saveAdmin')     result = saveAdmin(payload.data);
-      else if (payload.action === 'saveSubmission')result = saveSubmission(payload.data);
-      else if (payload.action === 'getAllHistory') result = getAllHistory();
-      else if (payload.action === 'clearSubmissions') result = clearSubmissions();
-      else result = { error: 'Unknown action' };
-    } else {
-      result = { error: 'Unknown action: ' + action };
+    if (action === 'getAll')         return jsonResp(getAll());
+    if (action === 'getAllHistory')   return jsonResp(getAllHistory());
+    if (action === 'ping')           return jsonResp({ ok: true });
+    if (action === 'getChecklists')  return jsonResp(getChecklists());
+    if (action === 'saveChecklists') {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      return jsonResp(saveChecklists(data));
     }
-  } catch(err) {
-    result = { error: err.message };
-  }
-  return ContentService.createTextOutput(JSON.stringify(result))
+    if (action === 'saveDealers') {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      return jsonResp(saveDealers(data));
+    }
+    if (action === 'saveSubmission') {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data || '{}'));
+      return jsonResp(saveSubmission(data));
+    }
+    if (action === 'saveAdmin') {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data || '{}'));
+      return jsonResp(saveAdmin(data));
+    }
+    if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
+  } catch(err) { return jsonResp({ error: err.message }); }
+  return jsonResp({ error: 'Unknown action: ' + action });
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const action = body.action;
+    if (action === 'saveDealers')      return jsonResp(saveDealers(body.data));
+    if (action === 'saveAdmin')        return jsonResp(saveAdmin(body.data));
+    if (action === 'saveSubmission')   return jsonResp(saveSubmission(body.data));
+    if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
+    if (action === 'saveChecklists')   return jsonResp(saveChecklists(body.data));
+    if (action === 'getAllHistory')     return jsonResp(getAllHistory());
+  } catch(err) { return jsonResp({ error: err.message }); }
+  return jsonResp({ error: 'Unknown action' });
+}
+
+function jsonResp(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
 function getSheet(name, headers) {
   let sh = SS.getSheetByName(name);
-  if (!sh) { sh = SS.insertSheet(name); if (headers) sh.appendRow(headers); }
+  if (!sh) {
+    sh = SS.insertSheet(name);
+    if (headers) sh.appendRow(headers);
+  }
   return sh;
 }
 
 function getAll() {
-  // Return ALL submissions — date filtering handled client-side in JS (avoids timezone mismatch)
+  // No date filter — JS filters by IST date to avoid GAS timezone mismatch
   return {
-    dealers: getSheetData('Dealers'),
-    admin: getSheetData('Admin'),
-    subs: getSheetData('Submissions'),
+    dealers:    getSheetData('Dealers'),
+    admin:      getSheetData('Admin'),
+    subs:       getSubmissions(),
     checklists: getChecklists().checklists
   };
 }
 
 function getAllHistory() {
-  // All submissions across all dates — used by History panel only
-  return { subs: getSheetData('Submissions') };
+  return { subs: getSubmissions() };
+}
+
+function getSubmissions() {
+  const sh = SS.getSheetByName('Submissions');
+  if (!sh || sh.getLastRow() <= 1) return [];
+  const COLS = ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time'];
+  const numRows = sh.getLastRow() - 1;
+  const data = sh.getRange(2, 1, numRows, COLS.length).getValues();
+  return data
+    .filter(row => row[0] && String(row[0]).trim() !== '')
+    .map(row => {
+      const obj = {};
+      COLS.forEach((h, i) => obj[h] = row[i]);
+      return obj;
+    });
 }
 
 function getSheetData(name) {
   const sh = SS.getSheetByName(name);
-  if (!sh) return [];
+  if (!sh || sh.getLastRow() <= 1) return [];
   const vals = sh.getDataRange().getValues();
-  if (vals.length <= 1) return [];
-  const headers = vals[0];
+  const headers = vals[0].map(h => String(h).trim());
   return vals.slice(1).map(row => {
     const obj = {};
-    headers.forEach((h,i) => obj[h] = row[i]);
+    headers.forEach((h, i) => { if (h) obj[h] = row[i]; });
     return obj;
-  });
+  }).filter(r => Object.values(r).some(v => v !== '' && v !== null));
 }
 
 function saveDealers(dealers) {
   const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
   sh.clearContents();
   sh.appendRow(['id','name','pass','sections','itemPerms']);
-  dealers.forEach(d => sh.appendRow([d.id, d.name, String(d.pass), JSON.stringify(d.sections), JSON.stringify(d.itemPerms || {})]));
+  dealers.forEach(d => sh.appendRow([
+    d.id, d.name, d.pass,
+    JSON.stringify(d.sections),
+    JSON.stringify(d.itemPerms || {})
+  ]));
   return { ok: true };
 }
 
@@ -2431,7 +2455,7 @@ function saveAdmin(admin) {
   const sh = getSheet('Admin', ['user','pass']);
   sh.clearContents();
   sh.appendRow(['user','pass']);
-  sh.appendRow([String(admin.user), String(admin.pass)]);
+  sh.appendRow([admin.user, admin.pass]);
   return { ok: true };
 }
 
@@ -2439,17 +2463,21 @@ function saveSubmission(sub) {
   const sh = getSheet('Submissions', ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']);
   const vals = sh.getDataRange().getValues();
   for (let i = vals.length - 1; i >= 1; i--) {
-    if (vals[i][0] === sub.key) sh.deleteRow(i + 1);
+    if (String(vals[i][0]) === String(sub.key)) sh.deleteRow(i + 1);
   }
   sub.data.forEach((d, idx) => {
-    sh.appendRow([sub.key, sub.dealer, sub.dealerName, sub.section, sub.sectionName, idx+1, d.item, d.status, d.remarks, sub.date, sub.time]);
+    sh.appendRow([sub.key, sub.dealer, sub.dealerName, sub.section, sub.sectionName,
+      idx + 1, d.item, d.status, d.remarks, sub.date, sub.time]);
   });
   return { ok: true };
 }
 
 function clearSubmissions() {
   const sh = SS.getSheetByName('Submissions');
-  if (sh) { sh.clearContents(); sh.appendRow(['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']); }
+  if (sh) {
+    sh.clearContents();
+    sh.appendRow(['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']);
+  }
   return { ok: true };
 }
 
@@ -2470,17 +2498,14 @@ function getChecklists() {
   if (!sh) return { checklists: null };
   const vals = sh.getDataRange().getValues();
   if (vals.length <= 1) return { checklists: null };
-  const rows = vals.slice(1);
   const sections = {};
-  rows.forEach(r => {
+  vals.slice(1).forEach(r => {
     const si = r[0], name = r[1], item = r[3];
     if (!sections[si]) sections[si] = { name: name, items: [] };
-    sections[si].items.push(item);
+    sections[si].items.push(String(item));
   });
-  const result = Object.keys(sections).sort((a,b)=>a-b).map(k => sections[k]);
-  return { checklists: result };
-}
-`.trim();
+  return { checklists: Object.keys(sections).sort((a,b)=>a-b).map(k => sections[k]) };
+}`.trim();
 
 function copyGASCode() {
   navigator.clipboard.writeText(GAS_CODE).then(() => {
