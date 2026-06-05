@@ -3485,12 +3485,18 @@ function toggleAllItems(dealerId, si, checked) {
 
 async function saveItemPerms(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
-  // perms already updated in-memory by toggleItemPerm/toggleAllItems
-  // Make sure itemPerms object is set
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  await saveDealers();
-  closeItemPermsModal();
-  renderDealerManagement();
+  const btn = document.querySelector('#itemPermsModal button[onclick*="saveItemPerms"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; btn.style.opacity = '0.7'; }
+  try {
+    await saveDealers();
+    closeItemPermsModal();
+    renderDealerManagement();
+    showToast(`✓ ${dealer.name}'s tasks saved to Google Sheets`, 'success');
+  } catch(e) {
+    if (btn) { btn.textContent = 'Save Changes'; btn.disabled = false; btn.style.opacity = '1'; }
+    showToast('Save failed — check GAS connection.', 'error');
+  }
 }
 
 async function updateDealerPassword(id) {
@@ -3904,6 +3910,27 @@ function renderHistoryTable() {
 let _autoRefreshTimer = null;
 const AUTO_REFRESH_MS = 60000; // 60 seconds
 
+function showToast(msg, type = 'success') {
+  let wrap = document.getElementById('toastWrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'toastWrap';
+    wrap.style.cssText = 'position:fixed;top:72px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(wrap);
+  }
+  const t = document.createElement('div');
+  const bg = type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#2563eb';
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+  t.style.cssText = `background:${bg};color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.35);opacity:0;transform:translateX(40px);transition:all 0.25s;display:flex;align-items:center;gap:8px;pointer-events:none;max-width:320px`;
+  t.innerHTML = `<span style="font-size:15px">${icon}</span><span>${msg}</span>`;
+  wrap.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(0)'; });
+  setTimeout(() => {
+    t.style.opacity = '0'; t.style.transform = 'translateX(40px)';
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
 function startAutoRefresh() {
   stopAutoRefresh();
   _autoRefreshTimer = setInterval(async () => {
@@ -4065,17 +4092,19 @@ function clRenameItem(idx, newText) {
 }
 
 async function clSaveChanges() {
-  // Re-render the dealer checklist views so they pick up the changes
-  if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
-  // If a dealer is logged in on the checklist view, re-render their checklist
-  if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
-    renderChecklists();
-  }
-  // Persist both checklists and dealer registry to Google Sheets
+  const btn = document.querySelector('.btn-submit[onclick="clSaveChanges()"]') ||
+              document.querySelector('button[onclick="clSaveChanges()"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; btn.style.opacity = '0.7'; }
   try {
     await Promise.all([saveChecklists(), saveDealers()]);
-    showToast('Checklist saved to Google Sheets!', 'success');
+    if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
+    if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
+      renderChecklists();
+    }
+    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; btn.style.opacity = '1'; }
+    showToast('✓ Checklist saved to Google Sheets!', 'success');
   } catch(e) {
+    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; btn.style.opacity = '1'; }
     showToast('Save failed — check GAS connection.', 'error');
     console.error('[clSaveChanges]', e);
   }
