@@ -2392,13 +2392,11 @@ function getSheet(name, headers) {
 }
 
 function getAll() {
-  // Only today's subs for live dealer view
-  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM yyyy');
-  const allSubs = getSheetData('Submissions');
+  // Return ALL submissions — date filtering handled client-side in JS (avoids timezone mismatch)
   return {
     dealers: getSheetData('Dealers'),
     admin: getSheetData('Admin'),
-    subs: allSubs.filter(r => r.date === todayStr),
+    subs: getSheetData('Submissions'),
     checklists: getChecklists().checklists
   };
 }
@@ -2658,10 +2656,18 @@ async function initApp() {
       await saveAdminCreds();
     }
 
-    // Rebuild submissions from Sheets rows
+    // Rebuild submissions from Sheets rows — filter to today using IST date
     submissions = {};
+    const _istNow = new Date(Date.now() + 5.5*60*60*1000);
+    const _dd  = String(_istNow.getUTCDate()).padStart(2,'0');
+    const _mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_istNow.getUTCMonth()];
+    const _yyyy = _istNow.getUTCFullYear();
+    const _todayIST = `${_dd} ${_mon} ${_yyyy}`;
+    console.log('[initApp] todayIST:', _todayIST, '| total subs from Sheets:', (all.subs||[]).length);
     (all.subs || []).forEach(row => {
-      const key = row.key;
+      const rowDate = String(row.date || '').trim();
+      if (rowDate !== _todayIST) return; // only today
+      const key = String(row.key || `${row.dealer}_${row.section}`).trim();
       if (!submissions[key]) {
         submissions[key] = {
           key,
@@ -2680,6 +2686,7 @@ async function initApp() {
         remarks: row.remarks
       });
     });
+    console.log('[initApp] submissions loaded for today:', Object.keys(submissions));
 
     refreshDealerMaps();
     populateDealerSelect();
@@ -3132,11 +3139,13 @@ async function switchPanel(id, el) {
   document.getElementById('panelTitle').textContent = titles[id] || id;
   if (id === 'history') { loadHistoryData(); return; }
   if (id === 'manage')  { renderClMgmt(); return; }
-  // For live panels, always pull fresh submissions from Sheets
+  // For live panels, always pull fresh submissions from Sheets filtered to today (IST)
   try {
     const fresh = await gasGet('getAll');
+    const _now = new Date(Date.now() + 5.5*60*60*1000);
+    const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
     submissions = {};
-    (fresh.subs || []).forEach(row => {
+    (fresh.subs || []).filter(r => String(r.date||'').trim() === _td).forEach(row => {
       const key = String(row.key || `${row.dealer}_${row.section}`).trim();
       if (!submissions[key]) {
         submissions[key] = {
@@ -3147,6 +3156,7 @@ async function switchPanel(id, el) {
       }
       submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
     });
+    console.log('[switchPanel] subs loaded:', Object.keys(submissions).length);
   } catch(e) { console.warn('[switchPanel] fetch failed:', e); }
   renderAdmin();
 }
@@ -3274,8 +3284,10 @@ function refreshOverviewDealerDropdown() {
 async function refreshAdminData() {
   try {
     const fresh = await gasGet('getAll');
+    const _now = new Date(Date.now() + 5.5*60*60*1000);
+    const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
     submissions = {};
-    (fresh.subs || []).forEach(row => {
+    (fresh.subs || []).filter(r => String(r.date||'').trim() === _td).forEach(row => {
       const key = String(row.key || `${row.dealer}_${row.section}`).trim();
       if (!submissions[key]) {
         submissions[key] = {
@@ -3286,6 +3298,7 @@ async function refreshAdminData() {
       }
       submissions[key].data.push({ item: row.item, status: row.status, remarks: row.remarks });
     });
+    console.log('[refreshAdmin] subs:', Object.keys(submissions).length);
   } catch(e) { console.warn('[refreshAdminData] fetch failed:', e); }
   renderAdmin();
 }
@@ -4300,9 +4313,11 @@ function startAutoRefresh() {
     try {
       const all = await gasGet('getAll');
       // Rebuild submissions from latest Sheets data
+      const _arn = new Date(Date.now() + 5.5*60*60*1000);
+      const _artd = `${String(_arn.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_arn.getUTCMonth()]} ${_arn.getUTCFullYear()}`;
       submissions = {};
-      (all.subs || []).forEach(row => {
-        const key = row.key;
+      (all.subs || []).filter(r => String(r.date||'').trim() === _artd).forEach(row => {
+        const key = String(row.key || `${row.dealer}_${row.section}`).trim();
         if (!submissions[key]) {
           submissions[key] = {
             key,
