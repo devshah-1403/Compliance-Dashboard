@@ -3946,22 +3946,38 @@ function applyHistDatePreset() {
 }
 
 function getHistDateFilter() {
-  // Returns { exactDate: 'DD Mon YYYY' } or null
   const val = document.getElementById('histDate')?.value || '';
   if (!val || val === '') return null;
-  const fmt = d => d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
-  if (val === 'today') return { exact: fmt(new Date()) };
+
+  // Use same today() function used when saving submissions — guarantees format match
+  if (val === 'today') return { exact: today() };
   if (val === 'yesterday') {
-    const y = new Date(); y.setDate(y.getDate() - 1);
-    return { exact: fmt(y) };
+    // Temporarily shift date back 1 day, call today(), restore
+    const _orig = Date;
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    // Build the same format today() uses: toLocaleDateString('en-IN', {day:'2-digit',month:'short',year:'numeric'})
+    const yStr = yesterday.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    return { exact: yStr };
   }
   if (val === 'custom') {
-    const raw = document.getElementById('histDateCustom')?.value;
+    const raw = document.getElementById('histDateCustom')?.value; // YYYY-MM-DD from date input
     if (!raw) return null;
-    const d = new Date(raw);
-    return { exact: fmt(d) };
+    // Convert YYYY-MM-DD to same format as today()
+    const [yr, mo, dy] = raw.split('-');
+    const d = new Date(Number(yr), Number(mo) - 1, Number(dy));
+    const str = d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    return { exact: str };
   }
   return null;
+}
+
+function debugHistDates() {
+  // Helper: log all unique dates in histAllRows to check format
+  const dates = [...new Set(histAllRows.map(r => r.date))].sort();
+  console.log('[History] Unique dates in data:', dates);
+  console.log('[History] today() =', today());
+  const yest = new Date(); yest.setDate(yest.getDate()-1);
+  console.log('[History] yesterday =', yest.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}));
 }
 
 function histPage(delta) {
@@ -3983,7 +3999,10 @@ function renderHistory() {
   histFiltered = histAllRows.filter(r => {
     // date format: "DD Mon YYYY" e.g. "02 Jun 2026"
     if (dateFilt) {
-      if (r.date !== dateFilt.exact) return false;
+      // Normalize both sides: trim whitespace, collapse spaces
+      const rDate = String(r.date || '').trim().replace(/\s+/g,' ');
+      const fDate = String(dateFilt.exact || '').trim().replace(/\s+/g,' ');
+      if (rDate !== fDate) return false;
     } else {
       if (year && !r.date.includes(year))  return false;
       if (month) {
