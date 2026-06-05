@@ -2399,11 +2399,12 @@ function getSheet(name, headers) {
 }
 
 function getAll() {
-  // No date filter — JS filters by IST date to avoid GAS timezone mismatch
+  // Filter subs to today using IST on GAS side for speed
+  const todayStr = Utilities.formatDate(new Date(), 'Asia/Kolkata', 'dd MMM yyyy');
   return {
     dealers:    getSheetData('Dealers'),
     admin:      getSheetData('Admin'),
-    subs:       getSubmissions(),
+    subs:       getSubmissions().filter(r => String(r.date || '').trim() === todayStr),
     checklists: getChecklists().checklists
   };
 }
@@ -2412,6 +2413,7 @@ function getAllHistory() {
   return { subs: getSubmissions() };
 }
 
+// Reads exactly 11 columns by position — immune to stray cells in other columns
 function getSubmissions() {
   const sh = SS.getSheetByName('Submissions');
   if (!sh || sh.getLastRow() <= 1) return [];
@@ -2423,6 +2425,11 @@ function getSubmissions() {
     .map(row => {
       const obj = {};
       COLS.forEach((h, i) => obj[h] = row[i]);
+      // Always return date/time as plain strings
+      obj['date'] = obj['date'] instanceof Date
+        ? Utilities.formatDate(obj['date'], 'Asia/Kolkata', 'dd MMM yyyy')
+        : String(obj['date'] || '').trim();
+      obj['time'] = String(obj['time'] || '').trim();
       return obj;
     });
 }
@@ -3208,13 +3215,13 @@ async function switchPanel(id, el) {
   if (id === 'manage')  { renderClMgmt(); return; }
   // For live panels, always pull fresh submissions from Sheets filtered to today (IST)
   try {
-    const fresh = await gasGet('getAll');
+    const res = await gasGet('getAllHistory');
     const _now = new Date(Date.now() + 5.5*60*60*1000);
     const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
-    const _tdRows = (fresh.subs || []).filter(r => normalizeDate(r.date) === _td);
-    if (_tdRows.length > 0 || Object.keys(submissions).length === 0) {
+    const _freshRows = (res.subs || []).filter(r => normalizeDate(r.date) === _td);
+    if (_freshRows.length > 0) {
       submissions = {};
-      _tdRows.forEach(row => {
+      _freshRows.forEach(row => {
         const key = String(row.key || `${row.dealer}_${row.section}`).trim();
         if (!submissions[key]) {
           submissions[key] = {
@@ -3357,11 +3364,11 @@ function refreshOverviewDealerDropdown() {
 
 async function refreshAdminData() {
   try {
-    const fresh = await gasGet('getAll');
+    const res = await gasGet('getAllHistory');
     const _now = new Date(Date.now() + 5.5*60*60*1000);
     const _td  = `${String(_now.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_now.getUTCMonth()]} ${_now.getUTCFullYear()}`;
-    const _refRows = (fresh.subs || []).filter(r => normalizeDate(r.date) === _td);
-    if (_refRows.length > 0 || Object.keys(submissions).length === 0) {
+    const _refRows = (res.subs || []).filter(r => normalizeDate(r.date) === _td);
+    if (_refRows.length > 0) {
       submissions = {};
       _refRows.forEach(row => {
         const key = String(row.key || `${row.dealer}_${row.section}`).trim();
