@@ -1536,146 +1536,6 @@ body {
   .cl-head .col-status, .cl-row .col-status,
   .cl-head .col-remarks, .cl-row .col-remarks { display: none; }
 }
-
-/* ═══════════════════════════════════════
-   MOBILE DEALER UI  (≤ 600px)
-═══════════════════════════════════════ */
-@media (max-width: 600px) {
-
-  /* ── Nav ── */
-  .dealer-nav { padding: 0 1rem; height: 52px; }
-  .topbar-brand-name { font-size: 13px; }
-  .date-chip { display: none; }
-  .topbar-user .uid { display: none; }
-  .btn-sm { padding: 5px 10px; font-size: 11px; }
-
-  /* ── Body & hero ── */
-  .dealer-body {
-    padding: 0.75rem 0.75rem 100px;  /* bottom pad for sticky submit */
-  }
-  .dealer-hero {
-    padding: 1rem;
-    margin-bottom: 1rem;
-    border-radius: 12px;
-  }
-  .dealer-hero-left h2 { font-size: 16px; }
-  .dealer-hero-left p  { font-size: 11px; }
-  .dealer-hero-right { font-size: 11px !important; }
-  #overallPct { font-size: 20px !important; }
-
-  /* ── Section tabs → horizontal scroll ── */
-  .cl-tabs {
-    gap: 6px;
-    padding: 4px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    margin-bottom: 1rem;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .cl-tabs::-webkit-scrollbar { display: none; }
-  .cl-tab {
-    flex: 0 0 auto;
-    padding: 7px 14px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  /* ── Checklist table → card stack ── */
-  .cl-table-wrap { border-radius: 12px; overflow: hidden; }
-  .cl-head { display: none; }          /* hide desktop header */
-
-  .cl-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
-    grid-template-columns: unset;
-    position: relative;
-  }
-  .cl-row:last-child { border-bottom: none; }
-
-  /* Number badge */
-  .cl-num {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    font-size: 10px;
-    background: var(--ink4);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1px 6px;
-  }
-
-  /* Item text */
-  .cl-label {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
-    padding-right: 36px; /* space for number badge */
-    padding-top: 0;
-  }
-
-  /* Status pills — show on mobile (they were hidden col-status) */
-  .col-status { display: block !important; }
-  .status-group {
-    display: flex;
-    gap: 6px;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-  .status-group::-webkit-scrollbar { display: none; }
-  .status-label {
-    flex: 0 0 auto;
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-
-  /* Remarks — show on mobile */
-  .col-remarks { display: block !important; }
-  .remarks-input {
-    font-size: 13px;
-    min-height: 38px;
-    border-radius: 8px;
-  }
-
-  /* ── Section footer → sticky bottom bar ── */
-  .section-footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
-    padding: 10px 16px;
-    gap: 10px;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    background: rgba(15, 17, 26, 0.95);
-    display: flex;
-    align-items: center;
-  }
-  .progress-block { flex: 1; min-width: 0; }
-  .progress-labels { font-size: 11px; }
-  .submit-msg { font-size: 11px; white-space: nowrap; }
-  .btn-submit {
-    padding: 10px 18px;
-    font-size: 13px;
-    border-radius: 10px;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  /* Only show footer for active section */
-  .checklist-section .section-footer { display: none; }
-  .checklist-section.active .section-footer { display: flex; }
-}
 /* ═══════════════════════════════════════
    CHECKLIST MANAGER (ADMIN)
 ═══════════════════════════════════════ */
@@ -2452,7 +2312,10 @@ body {
 ══════════════════════════════════════════════════════ */
 const GAS_URL_KEY = 'nbs_gas_url';
 const GAS_URL_HARDCODED = 'https://script.google.com/macros/s/AKfycbwhhGY2p_zl2nHnLMVceAxNZqwSGF-piT_VBzTOsQp_1aA4oL353dMueceNO6SQ2EGxTA/exec';
-let GAS_URL = GAS_URL_HARDCODED;
+// Prefer previously confirmed URL from sessionStorage; fall back to hardcoded
+let GAS_URL = (() => {
+  try { return sessionStorage.getItem(GAS_URL_KEY) || GAS_URL_HARDCODED; } catch(e) { return GAS_URL_HARDCODED; }
+})();
 
 const GAS_CODE = `
 // NBS Compliance Hub — Google Apps Script Backend
@@ -2462,14 +2325,7 @@ const SS = SpreadsheetApp.getActiveSpreadsheet();
 
 function doGet(e) {
   const action  = e.parameter.action;
-  // Support both ?payload=<json> (legacy) and ?action=X&data=<json> (current)
-  let payload = null;
-  if (e.parameter.payload) {
-    payload = JSON.parse(decodeURIComponent(e.parameter.payload));
-  } else if (e.parameter.data) {
-    // data param contains the .data field; wrap it so _handle sees {data: ...}
-    payload = { action: action, data: JSON.parse(decodeURIComponent(e.parameter.data)) };
-  }
+  const payload = e.parameter.payload ? JSON.parse(decodeURIComponent(e.parameter.payload)) : null;
   return _handle(action, payload);
 }
 
@@ -2515,10 +2371,15 @@ function getSheet(name, headers) {
 }
 
 function getAll() {
+  // Only send today's submissions to keep payload small.
+  // Full history is loaded separately via loadHistoryData.
+  const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM yyyy');
+  const allSubs = getSheetData('Submissions');
+  const todaySubs = allSubs.filter(r => r.date === todayStr);
   return {
     dealers: getSheetData('Dealers'),
     admin: getSheetData('Admin'),
-    subs: getSheetData('Submissions'),
+    subs: todaySubs,
     checklists: getChecklists().checklists
   };
 }
@@ -2624,6 +2485,7 @@ async function connectSheets() {
     const res = await gasGet('ping', url);
     if (!res.ok) throw new Error('Connection failed');
     GAS_URL = url;
+    sessionStorage.setItem(GAS_URL_KEY, GAS_URL);
     document.getElementById('sheetsSetupOverlay').style.display = 'none';
     await initApp();
   } catch(e) {
@@ -2642,27 +2504,71 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // GAS doPost accepts JSON body — no URL length limit.
-  // Must use mode:'no-cors' because GAS redirects make the response opaque.
-  // We verify success with a lightweight GET ping after.
-  await fetch(GAS_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body)
-  });
-  // Ping confirms GAS is reachable; if network is down this throws
-  const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
-  const pj = await ping.json();
-  if (pj && pj.error) throw new Error(pj.error);
-  return { ok: true };
+  // Primary: POST with JSON body to avoid GET URL length limits for large submissions.
+  // GAS doPost must be deployed (see updated Apps Script below).
+  // Falls back to GET-param encoding for small payloads if POST fails.
+  const u = GAS_URL + '?t=' + Date.now();
+  try {
+    const res = await fetch(u, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!json || json.error) throw new Error(json && json.error ? json.error : 'POST failed');
+    return json;
+  } catch(postErr) {
+    console.warn('POST failed, falling back to GET encoding:', postErr);
+    const payload = encodeURIComponent(JSON.stringify(body));
+    const uFb = GAS_URL + '?action=' + body.action + '&payload=' + payload + '&t=' + Date.now();
+    const res = await fetch(uFb, { redirect: 'follow' });
+    return res.json();
+  }
 }
 
 /* ── DATA ── */
 const CHECKLISTS = [
-  { name: "Dealer Compliance", items: [] },
-  { name: "Back Office Ops",   items: [] },
-  { name: "KYC Department",    items: [] }
+  {
+    name: "Dealer Compliance",
+    items: [
+      "Voice recording active","Client identity verified before trade","Margin checked before trade execution",
+      "Orders punched as per client instruction","No unauthorized trades executed",
+      "Client code verified before order entry","Suspicious trading activity reported",
+      "CCM requests documented properly","Terminal password secured",
+      "No use of personal mobile for orders","OMS/RMS connectivity verified",
+      "Pending orders reviewed","Trade confirmations verified",
+      "Dealer activity reconciled","Logged out from trading systems at EOD"
+    ]
+  },
+  {
+    name: "Back Office Ops",
+    items: [
+      "Contract notes generated and dispatched","Trade confirmations verified",
+      "Client ledger reconciliation completed","Bank reconciliation completed",
+      "Daily margin reporting completed","Client fund segregation verified",
+      "Pay-in/pay-out obligations checked","Settlement shortages monitored",
+      "Auction obligations reviewed","Client securities reconciliation completed",
+      "Running account settlement reviewed","Debit balance report checked",
+      "ECN/SMS delivery status verified","UCC upload status verified",
+      "Client code modifications updated","Pledge/re-pledge entries verified",
+      "DP balances reconciled","Suspense entries reviewed",
+      "Trade file uploads verified","Backup of operational data completed",
+      "Pending client requests reviewed","Operational exception register updated"
+    ]
+  },
+  {
+    name: "KYC Department",
+    items: [
+      "PAN verified","Aadhaar verified","CKYC/KRA validation completed","IPV completed",
+      "Mobile number verified","Email ID verified","Address proof verified","Bank proof verified",
+      "Income proof collected for derivatives","Photograph obtained","Signature verified",
+      "Nomination details updated","FATCA declaration obtained","PEP declaration checked",
+      "Risk disclosure documents accepted","UCC created and uploaded","AML screening completed",
+      "Sanction screening completed","Demat details verified","DDPI/POA verification completed",
+      "KYC records updated","Pending documentation reviewed"
+    ]
+  }
 ];
 
 const DEALER_COLORS_LIST = ['var(--d1)','var(--d2)','var(--d3)','var(--accent)','var(--violet)','var(--amber)','var(--green)'];
@@ -2696,45 +2602,46 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets only if they have actual items.
-    // If Sheets returns empty or null, keep CHECKLISTS arrays empty so dealer sees nothing.
+    // Load checklists from Sheets — only accept if Sheets has >= items than hardcoded.
+    // If Sheets is stale (old shorter list), hardcoded wins and we push it back to Sheets.
+    let sheetsChecklistsStale = false;
     if (all.checklists && all.checklists.length > 0) {
       all.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
-          CHECKLISTS[i].items = sec.items;
+        if (CHECKLISTS[i]) {
+          if (sec.items && sec.items.length >= CHECKLISTS[i].items.length) {
+            CHECKLISTS[i].items = sec.items;
+          } else {
+            sheetsChecklistsStale = true;
+          }
         }
       });
+    } else {
+      sheetsChecklistsStale = true;
+    }
+    if (sheetsChecklistsStale) {
+      try { await saveChecklists(); } catch(e) { console.warn('Checklist sync failed', e); }
     }
 
     // Rebuild dealer registry
     dealerRegistry = {};
-    let needsResave = false;
     (all.dealers || []).forEach(d => {
       let sections = d.sections;
       if (typeof sections === 'string') {
         try { sections = JSON.parse(sections); } catch(e) { sections = [0,1,2]; }
       }
-      let itemPerms = {};
-      if (!d.itemPerms || d.itemPerms === '' || d.itemPerms === '{}') {
-        // itemPerms column missing or empty — sheet needs resave with new column
-        needsResave = true;
-      } else {
-        if (typeof d.itemPerms === 'string') {
-          try { itemPerms = JSON.parse(d.itemPerms); } catch(e) { itemPerms = {}; needsResave = true; }
-        } else {
-          itemPerms = d.itemPerms;
-        }
-        // Normalise all keys to strings (JSON.parse may produce numeric keys)
-        const normalised = {};
-        Object.entries(itemPerms).forEach(([k, v]) => { normalised[String(k)] = v; });
-        itemPerms = normalised;
-      }
-      dealerRegistry[d.id] = { name: d.name, pass: String(d.pass), sections, itemPerms };
+      dealerRegistry[d.id] = {
+        name: d.name,
+        pass: String(d.pass),
+        sections,
+        itemPerms: (() => {
+          if (!d.itemPerms) return {};
+          if (typeof d.itemPerms === 'string') {
+            try { return JSON.parse(d.itemPerms); } catch(e) { return {}; }
+          }
+          return d.itemPerms;
+        })()
+      };
     });
-    // If any dealer was missing itemPerms, resave all dealers to fix the Sheets column
-    if (needsResave && Object.keys(dealerRegistry).length > 0) {
-      saveDealers().catch(e => console.warn('Resave dealers failed:', e));
-    }
 
     // Rebuild admin creds
     if (all.admin && all.admin.length) {
@@ -2744,9 +2651,12 @@ async function initApp() {
       await saveAdminCreds();
     }
 
-    // Rebuild submissions from Sheets rows
+    // Rebuild submissions from Sheets rows — TODAY ONLY for live state.
+    // All past dates remain in Sheets and are accessible via the History panel.
+    const todayStr = today();
     submissions = {};
     (all.subs || []).forEach(row => {
+      if (row.date !== todayStr) return; // skip previous days — they live in history
       const key = row.key;
       if (!submissions[key]) {
         submissions[key] = {
@@ -2826,48 +2736,6 @@ function refreshDealerMaps() {
 let currentDealer = null;
 let submissions = {};
 
-/* ── DRAFT PERSISTENCE (localStorage) ── */
-function draftKey(dealer, si) {
-  return `nbs_draft_${dealer}_${si}_${today()}`;
-}
-
-function saveDraft(si) {
-  if (!currentDealer) return;
-  const dealer = dealerRegistry[currentDealer];
-  const perms  = dealer ? getItemPerms(dealer, si) : CHECKLISTS[si].items.map(() => true);
-  const draft  = {};
-  CHECKLISTS[si].items.forEach((_, idx) => {
-    if (!perms[idx]) return;
-    const uid    = `s${si}_i${idx}_${currentDealer}`;
-    const selEl  = document.querySelector(`input[name="${uid}"]:checked`);
-    const remEl  = document.getElementById(`rem-${uid}`);
-    draft[idx]   = { status: selEl ? selEl.value : '', remarks: remEl ? remEl.value : '' };
-  });
-  try { localStorage.setItem(draftKey(currentDealer, si), JSON.stringify(draft)); } catch(e) {}
-}
-
-function restoreDraft(si) {
-  if (!currentDealer) return false;
-  let raw;
-  try { raw = localStorage.getItem(draftKey(currentDealer, si)); } catch(e) { return false; }
-  if (!raw) return false;
-  let draft;
-  try { draft = JSON.parse(raw); } catch(e) { return false; }
-  let anyRestored = false;
-  Object.entries(draft).forEach(([idx, val]) => {
-    const uid   = `s${si}_i${idx}_${currentDealer}`;
-    const radio = val.status ? document.querySelector(`input[name="${uid}"][value="${val.status}"]`) : null;
-    if (radio) { radio.checked = true; anyRestored = true; onStatusChange(uid, si); }
-    const remEl = document.getElementById(`rem-${uid}`);
-    if (remEl && val.remarks) { remEl.value = val.remarks; }
-  });
-  return anyRestored;
-}
-
-function clearDraft(si) {
-  try { localStorage.removeItem(draftKey(currentDealer, si)); } catch(e) {}
-}
-
 /* ── UTILS ── */
 function today() {
   return new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
@@ -2927,7 +2795,7 @@ async function dealerLogin() {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i] && sec.items && sec.items.length > 0) {
+        if (CHECKLISTS[i] && sec.items && sec.items.length >= CHECKLISTS[i].items.length) {
           CHECKLISTS[i].items = sec.items;
         }
       });
@@ -3010,40 +2878,7 @@ function renderChecklists() {
       container.appendChild(row);
     });
     updateProgress(si);
-
-    // Restore today's draft if exists
-    const hasDraft = restoreDraft(si);
-    // Check if already submitted today
-    const key = `${currentDealer}_${si}`;
-    const alreadySubmitted = !!submissions[key];
-    const btn  = document.getElementById(`submit-btn-${si}`);
-    const msg  = document.getElementById(`submit-msg-${si}`);
-    if (alreadySubmitted) {
-      // Restore submitted values into form
-      const sub = submissions[key];
-      let visIdx = 0;
-      section.items.forEach((_, idx) => {
-        if (!perms[idx]) return;
-        const uid   = `s${si}_i${idx}_${currentDealer}`;
-        const d     = sub.data[visIdx++];
-        if (!d) return;
-        if (d.status) {
-          const radio = document.querySelector(`input[name="${uid}"][value="${d.status}"]`);
-          if (radio) { radio.checked = true; onStatusChange(uid, si); }
-        }
-        const remEl = document.getElementById(`rem-${uid}`);
-        if (remEl && d.remarks) remEl.value = d.remarks;
-      });
-      btn.textContent = 'Resubmit';
-      btn.style.background = 'var(--amber)';
-      msg.classList.add('show');
-      updateProgress(si);
-    } else if (hasDraft) {
-      updateProgress(si);
-      updateOverallPct();
-    }
   });
-  updateOverallPct();
 }
 
 function onStatusChange(uid, si) {
@@ -3062,7 +2897,6 @@ function onStatusChange(uid, si) {
   }
   updateProgress(si);
   updateOverallPct();
-  saveDraft(si);
 }
 
 function onRemarks(uid, si) {
@@ -3072,7 +2906,6 @@ function onRemarks(uid, si) {
     if (remEl.value.trim()) remEl.classList.remove('mandatory');
     else remEl.classList.add('mandatory');
   }
-  saveDraft(si);
 }
 
 function updateProgress(si) {
@@ -3142,7 +2975,7 @@ async function submitSection(si) {
     alert('Please fill in at least some checklist items before submitting.');
     return;
   }
-  const key = `${currentDealer}_${si}`;
+  const key = `${currentDealer}_${si}_${today()}`;
   const sub = {
     key,
     dealer: currentDealer,
@@ -3159,15 +2992,12 @@ async function submitSection(si) {
   try {
     await gasPost({ action: 'saveSubmission', data: sub });
     submissions[key] = sub;
-    clearDraft(si);
     document.getElementById(`submit-msg-${si}`).classList.add('show');
-    btn.textContent       = 'Resubmit';
-    btn.style.background  = 'var(--amber)';
-    btn.disabled          = false;
+    btn.textContent = '✓ Submitted';
   } catch(e) {
     alert('Failed to save to Google Sheets. Please try again.');
     btn.disabled    = false;
-    btn.textContent = submissions[key] ? 'Resubmit' : 'Submit Section';
+    btn.textContent = 'Submit Section';
   }
 }
 
@@ -3194,12 +3024,6 @@ function switchPanel(id, el) {
     if (countEl) countEl.textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
     if (clMgmtOpen) renderClMgmt();
     renderDealerManagement();
-    // If all checklists are empty in memory, push empty arrays to Sheets
-    // This clears any stale old data sitting in the Checklists tab
-    const totalItems = CHECKLISTS.reduce((s, sec) => s + sec.items.length, 0);
-    if (totalItems === 0) {
-      gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(() => {});
-    }
   }
 }
 
@@ -3574,50 +3398,24 @@ async function toggleSection(dealerId, secIdx) {
 /* ── Item-level permissions ── */
 function getItemPerms(dealer, si) {
   // dealer.itemPerms: { [si]: [true,true,false,...] }
-  // NOTE: This function ONLY mutates dealer.itemPerms when called from openItemPermsModal
-  // or renderChecklist (actual usage). renderDealerManagement uses getItemPermsReadOnly
-  // to avoid corrupting saved perms with all-true defaults.
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  const key = String(si);
   // If no saved perms for this section yet, default ALL to true (first-time setup)
-  if (!dealer.itemPerms[key] && !dealer.itemPerms[si]) {
-    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[key];
+  if (!dealer.itemPerms[si]) {
+    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[si];
   }
-  // Normalise key — sheet may have stored as number key, ensure string key
-  if (!dealer.itemPerms[key] && dealer.itemPerms[si]) {
-    dealer.itemPerms[key] = dealer.itemPerms[si];
-    delete dealer.itemPerms[si];
-  }
-  const saved = dealer.itemPerms[key];
   // If the saved array is from before a major checklist expansion (less than half the
   // current length), treat it as stale and reset ALL to true so no items go missing.
-  if (saved.length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
-    dealer.itemPerms[key] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[key];
+  if (dealer.itemPerms[si].length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
+    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
+    return dealer.itemPerms[si];
   }
   // Saved perms exist and are reasonably current — extend if checklist grew, padding with TRUE
-  while (dealer.itemPerms[key].length < CHECKLISTS[si].items.length) dealer.itemPerms[key].push(true);
+  while (dealer.itemPerms[si].length < CHECKLISTS[si].items.length) dealer.itemPerms[si].push(true);
   // Trim if checklist shrank
-  if (dealer.itemPerms[key].length > CHECKLISTS[si].items.length)
-    dealer.itemPerms[key] = dealer.itemPerms[key].slice(0, CHECKLISTS[si].items.length);
-  return dealer.itemPerms[key];
-}
-
-function getItemPermsReadOnly(dealer, si) {
-  // Read-only version — NEVER mutates dealer.itemPerms.
-  // Used by renderDealerManagement to show counts without triggering initialisation
-  // of inactive sections (which would overwrite saved partial perms with all-true).
-  if (!dealer.itemPerms) return CHECKLISTS[si].items.map(() => true);
-  const key = String(si);
-  const saved = dealer.itemPerms[key] ?? dealer.itemPerms[si];
-  if (!saved || !Array.isArray(saved)) return CHECKLISTS[si].items.map(() => true);
-  const total = CHECKLISTS[si].items.length;
-  if (saved.length < Math.ceil(total / 2)) return CHECKLISTS[si].items.map(() => true);
-  // Pad/trim without mutating — return a copy
-  if (saved.length < total) return [...saved, ...Array(total - saved.length).fill(true)];
-  if (saved.length > total) return saved.slice(0, total);
-  return saved;
+  if (dealer.itemPerms[si].length > CHECKLISTS[si].items.length)
+    dealer.itemPerms[si] = dealer.itemPerms[si].slice(0, CHECKLISTS[si].items.length);
+  return dealer.itemPerms[si];
 }
 
 function openItemPermsModal(dealerId, si) {
@@ -3716,18 +3514,12 @@ function toggleAllItems(dealerId, si, checked) {
 
 async function saveItemPerms(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
+  // perms already updated in-memory by toggleItemPerm/toggleAllItems
+  // Make sure itemPerms object is set
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  const btn = document.querySelector('#itemPermsModal button[onclick*="saveItemPerms"]');
-  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
-  try {
-    await saveDealers();
-    closeItemPermsModal();
-    renderDealerManagement();
-    alert(`✓ Saved! ${dealer.name}'s tasks updated in Google Sheets.`);
-  } catch(e) {
-    if (btn) { btn.textContent = 'Save Changes'; btn.disabled = false; }
-    alert('❌ Save failed. Check your internet connection.\n\nError: ' + e.message);
-  }
+  await saveDealers();
+  closeItemPermsModal();
+  renderDealerManagement();
 }
 
 async function updateDealerPassword(id) {
@@ -3754,7 +3546,7 @@ function renderDealerManagement() {
     const sections = d.sections ?? [0,1,2];
     const sectionBtns = sectionNames.map((sn, si) => {
       const active = sections.includes(si);
-      const perms = getItemPermsReadOnly(d, si);
+      const perms = getItemPerms(d, si);
       const enabledCount = perms.filter(Boolean).length;
       const totalCount   = CHECKLISTS[si].items.length;
       const allEnabled   = enabledCount === totalCount;
@@ -4125,11 +3917,32 @@ function stopAutoRefresh() {
 
 // ── Init ──
 window.addEventListener('DOMContentLoaded', () => {
-  // URL is hardcoded — never show the setup overlay.
-  document.getElementById('sheetsSetupOverlay').style.display = 'none';
-  initApp().then(() => startAutoRefresh()).catch(err => {
-    console.warn('GAS connection failed:', err);
-  });
+  // If we have a GAS URL already confirmed (sessionStorage), try to load immediately.
+  // Otherwise show the setup overlay so the user can enter their URL.
+  const storedUrl = (() => { try { return sessionStorage.getItem(GAS_URL_KEY); } catch(e) { return null; } })();
+  if (storedUrl && storedUrl.includes('script.google.com')) {
+    GAS_URL = storedUrl;
+    document.getElementById('sheetsSetupOverlay').style.display = 'none';
+    initApp().then(() => startAutoRefresh()).catch(err => {
+      console.warn('Auto-connect failed, showing setup overlay:', err);
+      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+    });
+  } else if (GAS_URL_HARDCODED.includes('script.google.com')) {
+    // Try the hardcoded URL silently; show overlay on failure
+    GAS_URL = GAS_URL_HARDCODED;
+    document.getElementById('sheetsSetupOverlay').style.display = 'none';
+    initApp().then(() => {
+      // Confirm it worked — persist to sessionStorage
+      try { sessionStorage.setItem(GAS_URL_KEY, GAS_URL); } catch(e) {}
+      startAutoRefresh();
+    }).catch(err => {
+      console.warn('Hardcoded GAS URL failed, showing setup overlay:', err);
+      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+    });
+  } else {
+    // No valid URL — show setup overlay
+    document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+  }
 });
 // ═══════════════════════════════════════════════════════════
 //  CHECKLIST ITEM MANAGER (Admin Panel)
@@ -4203,8 +4016,7 @@ function clAddItem() {
   CHECKLISTS[clMgmtSection].items.push(text);
   input.value = '';
   renderClMgmt();
-  // Auto-save to Sheets immediately — this also creates the Checklists sheet if it doesn't exist
-  gasPost({ action: 'saveChecklists', data: CHECKLISTS }).catch(e => console.warn('Auto-save failed:', e));
+  // Auto-scroll to bottom of list
   const listEl = document.getElementById('clItemsList');
   if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: 'smooth' });
 }
@@ -4234,20 +4046,18 @@ function clRenameItem(idx, newText) {
 }
 
 async function clSaveChanges() {
-  const btn = event?.target;
-  const originalText = btn ? btn.textContent : '';
-  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; }
+  // Re-render the dealer checklist views so they pick up the changes
+  if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
+  // If a dealer is logged in on the checklist view, re-render their checklist
+  if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
+    renderChecklists();
+  }
+  // Persist both checklists and dealer registry to Google Sheets
   try {
-    await saveChecklists();
-    await saveDealers();
-    if (btn) { btn.textContent = '✓ Saved!'; btn.style.background = 'var(--green)'; }
-    setTimeout(() => {
-      if (btn) { btn.textContent = originalText; btn.style.background = ''; btn.disabled = false; }
-    }, 2000);
-    alert('✓ Checklist saved to Google Sheets! All dealers will see updated tasks on next login.');
+    await Promise.all([saveChecklists(), saveDealers()]);
+    showToast('Checklist saved to Google Sheets!', 'success');
   } catch(e) {
-    if (btn) { btn.textContent = originalText; btn.disabled = false; }
-    alert('❌ Save failed. Check your GAS URL and internet connection.\n\nError: ' + e.message);
+    showToast('Save failed — check GAS connection.', 'error');
     console.error('[clSaveChanges]', e);
   }
 }
@@ -4327,7 +4137,7 @@ async function clImportExcel(input) {
     });
 
     if (imported === 0) {
-      alert('No matching section sheets found in this file.');
+      showToast('No matching section sheets found in this file.', 'error');
       return;
     }
 
@@ -4336,10 +4146,13 @@ async function clImportExcel(input) {
     // Re-render dealer checklist if active
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
-    alert(`✓ Imported ${imported} section${imported>1?'s':''} successfully! Now click "Save & Apply Changes" to push to Google Sheets.${skipped?' ('+skipped+' sheet(s) skipped)':''}`);
+    showToast(
+      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
+      'success'
+    );
   } catch (err) {
     console.error('[Import]', err);
-    alert('Failed to read Excel file. Make sure it is the NBS template format.');
+    showToast('Failed to read Excel file. Make sure it is the NBS template format.', 'error');
   }
 }
 
@@ -4348,7 +4161,7 @@ function clDownloadTemplate(e) {
   e.preventDefault();
 
   if (typeof XLSX === 'undefined') {
-    alert('Excel library not loaded yet — please wait a moment.');
+    showToast('Excel library not loaded yet — please wait a moment.', 'error');
     return;
   }
 
@@ -4381,7 +4194,7 @@ function clDownloadTemplate(e) {
   });
 
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
-  alert('Template downloaded!');
+  showToast('Template downloaded!', 'success');
 }
 
 </script>
