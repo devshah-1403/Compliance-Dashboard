@@ -2900,6 +2900,7 @@ async function dealerLogin() {
 }
 
 function dealerLogout() {
+  saveSessionState(); // preserve active tab before signing out
   currentDealer = null;
   populateDealerSelect();
   document.getElementById('dealerPass').value = '';
@@ -2935,9 +2936,10 @@ function renderChecklists() {
     sec.style.display = assignedSections.includes(i) ? '' : 'none';
   });
 
-  // Switch to first assigned tab
-  const firstTab = assignedSections[0] ?? 0;
-  switchTab(firstTab);
+  // Restore the tab the dealer was on before signing out (or default to first assigned)
+  const savedTab = restoreSessionState();
+  const restoredTab = assignedSections.includes(savedTab) ? savedTab : (assignedSections[0] ?? 0);
+  switchTab(restoredTab);
 
   CHECKLISTS.forEach((section, si) => {
     if (!assignedSections.includes(si)) return;
@@ -3088,6 +3090,41 @@ function updateOverallPct() {
 function switchTab(idx) {
   document.querySelectorAll('.cl-tab').forEach((t,i) => t.classList.toggle('active', i===idx));
   document.querySelectorAll('.checklist-section').forEach((s,i) => s.classList.toggle('active', i===idx));
+  // Persist active tab for current dealer so it survives sign-out/sign-in
+  if (currentDealer) {
+    try {
+      const todayStr = today();
+      localStorage.setItem(`nbs_tab_${currentDealer}`, JSON.stringify({ tab: idx, date: todayStr }));
+    } catch(e) {}
+  }
+}
+
+/* ── Session helpers: save/restore dealer UI state ── */
+function saveSessionState() {
+  if (!currentDealer) return;
+  try {
+    const todayStr = today();
+    // Save current active tab
+    const activeTab = [...document.querySelectorAll('.cl-tab')].findIndex(t => t.classList.contains('active'));
+    const state = { tab: activeTab >= 0 ? activeTab : 0, date: todayStr };
+    localStorage.setItem(`nbs_tab_${currentDealer}`, JSON.stringify(state));
+  } catch(e) {}
+}
+
+function restoreSessionState() {
+  if (!currentDealer) return 0; // default to first tab
+  try {
+    const todayStr = today();
+    const raw = localStorage.getItem(`nbs_tab_${currentDealer}`);
+    if (!raw) return 0;
+    const state = JSON.parse(raw);
+    // Only restore if from today — otherwise reset (daily reset)
+    if (state.date !== todayStr) {
+      localStorage.removeItem(`nbs_tab_${currentDealer}`);
+      return 0;
+    }
+    return typeof state.tab === 'number' ? state.tab : 0;
+  } catch(e) { return 0; }
 }
 
 async function submitSection(si) {
