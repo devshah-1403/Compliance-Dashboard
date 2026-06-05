@@ -2071,15 +2071,19 @@ body {
         </div>
 
         <!-- Controls row -->
-        <div class="history-controls">
+        <div class="history-controls" style="flex-wrap:wrap;gap:12px 16px;align-items:flex-end">
+          <div class="history-ctrl-group">
+            <label class="history-ctrl-label">Specific Date</label>
+            <input type="date" class="filter-select" id="histDate" style="cursor:pointer">
+          </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Year</label>
-            <select class="filter-select" id="histYear" onchange="renderHistory()">
+            <select class="filter-select" id="histYear">
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Month</label>
-            <select class="filter-select" id="histMonth" onchange="renderHistory()">
+            <select class="filter-select" id="histMonth">
               <option value="">All Months</option>
               <option value="01">January</option><option value="02">February</option>
               <option value="03">March</option><option value="04">April</option>
@@ -2091,13 +2095,13 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Dealer</label>
-            <select class="filter-select" id="histDealer" onchange="renderHistory()">
+            <select class="filter-select" id="histDealer">
               <option value="">All Dealers</option>
             </select>
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Section</label>
-            <select class="filter-select" id="histSection" onchange="renderHistory()">
+            <select class="filter-select" id="histSection">
               <option value="">All Sections</option>
               <option value="0">Dealer Compliance</option>
               <option value="1">Back Office Ops</option>
@@ -2106,14 +2110,17 @@ body {
           </div>
           <div class="history-ctrl-group">
             <label class="history-ctrl-label">Status</label>
-            <select class="filter-select" id="histStatus" onchange="renderHistory()">
+            <select class="filter-select" id="histStatus">
               <option value="">All Statuses</option>
               <option value="completed">Completed</option>
               <option value="partial">Partial Done</option>
               <option value="notdone">Not Done</option>
             </select>
           </div>
-          <button class="btn-sm" onclick="clearHistoryFilters()" style="margin-top:18px;color:var(--text3)">Clear</button>
+          <div style="display:flex;gap:8px;margin-top:18px">
+            <button class="btn-primary" onclick="renderHistory()" style="padding:7px 22px;font-size:13px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:600;letter-spacing:0.2px">🔍 Search</button>
+            <button class="btn-sm" onclick="clearHistoryFilters()" style="color:var(--text3)">Clear</button>
+          </div>
         </div>
 
         <!-- Summary KPI strip -->
@@ -2189,17 +2196,11 @@ body {
 
         <!-- Manage Checklist Items Card -->
         <div class="table-card" style="margin-bottom:1.5rem">
-          <div class="table-card-header" onclick="toggleClMgmt()" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between">
-            <div style="display:flex;align-items:center;gap:10px">
-              <span class="table-card-title">Manage Checklist Items</span>
-              <span class="table-count" id="clMgmtCount"></span>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <span id="clMgmtExpandHint" style="font-size:11px;color:var(--text3)">click to expand</span>
-              <span id="clMgmtChevron" style="font-size:16px;color:var(--text3);transition:transform .2s;display:inline-block">▶</span>
-            </div>
+          <div class="table-card-header">
+            <span class="table-card-title">Manage Checklist Items</span>
+            <span class="table-count" id="clMgmtCount"></span>
           </div>
-          <div id="clMgmtBody" style="display:none;padding:1.25rem;border-top:1px solid var(--border)">
+          <div style="padding:1.25rem">
             <!-- Section Tabs -->
             <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap" id="clMgmtTabs"></div>
             <!-- Add Item Row -->
@@ -2341,6 +2342,7 @@ function _handle(action, payload) {
   try {
     if (action === 'ping')              result = { ok: true };
     else if (action === 'getAll')       result = getAll();
+    else if (action === 'getAllHistory') result = getAllHistory();
     else if (action === 'saveDealers')        result = saveDealers(payload.data);
     else if (action === 'saveAdmin')          result = saveAdmin(payload.data);
     else if (action === 'saveSubmission')     result = saveSubmission(payload.data);
@@ -2352,6 +2354,7 @@ function _handle(action, payload) {
       if (payload.action === 'saveDealers')        result = saveDealers(payload.data);
       else if (payload.action === 'saveAdmin')     result = saveAdmin(payload.data);
       else if (payload.action === 'saveSubmission')result = saveSubmission(payload.data);
+      else if (payload.action === 'getAllHistory') result = getAllHistory();
       else if (payload.action === 'clearSubmissions') result = clearSubmissions();
       else result = { error: 'Unknown action' };
     } else {
@@ -2371,17 +2374,20 @@ function getSheet(name, headers) {
 }
 
 function getAll() {
-  // Only send today's submissions to keep payload small.
-  // Full history is loaded separately via loadHistoryData.
+  // Only today's subs for live dealer view
   const todayStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd MMM yyyy');
   const allSubs = getSheetData('Submissions');
-  const todaySubs = allSubs.filter(r => r.date === todayStr);
   return {
     dealers: getSheetData('Dealers'),
     admin: getSheetData('Admin'),
-    subs: todaySubs,
+    subs: allSubs.filter(r => r.date === todayStr),
     checklists: getChecklists().checklists
   };
+}
+
+function getAllHistory() {
+  // All submissions across all dates — used by History panel only
+  return { subs: getSheetData('Submissions') };
 }
 
 function getSheetData(name) {
@@ -2602,24 +2608,11 @@ async function initApp() {
   try {
     const all = await gasGet('getAll');
 
-    // Load checklists from Sheets — only accept if Sheets has >= items than hardcoded.
-    // If Sheets is stale (old shorter list), hardcoded wins and we push it back to Sheets.
-    let sheetsChecklistsStale = false;
+    // Load checklists from Sheets (comes bundled in getAll — no extra round-trip)
     if (all.checklists && all.checklists.length > 0) {
       all.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) {
-          if (sec.items && sec.items.length >= CHECKLISTS[i].items.length) {
-            CHECKLISTS[i].items = sec.items;
-          } else {
-            sheetsChecklistsStale = true;
-          }
-        }
+        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
       });
-    } else {
-      sheetsChecklistsStale = true;
-    }
-    if (sheetsChecklistsStale) {
-      try { await saveChecklists(); } catch(e) { console.warn('Checklist sync failed', e); }
     }
 
     // Rebuild dealer registry
@@ -2651,12 +2644,9 @@ async function initApp() {
       await saveAdminCreds();
     }
 
-    // Rebuild submissions from Sheets rows — TODAY ONLY for live state.
-    // All past dates remain in Sheets and are accessible via the History panel.
-    const todayStr = today();
+    // Rebuild submissions from Sheets rows
     submissions = {};
     (all.subs || []).forEach(row => {
-      if (row.date !== todayStr) return; // skip previous days — they live in history
       const key = row.key;
       if (!submissions[key]) {
         submissions[key] = {
@@ -2795,9 +2785,7 @@ async function dealerLogin() {
     const clData = await gasGet('getChecklists');
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i] && sec.items && sec.items.length >= CHECKLISTS[i].items.length) {
-          CHECKLISTS[i].items = sec.items;
-        }
+        if (CHECKLISTS[i]) CHECKLISTS[i].items = sec.items;
       });
     }
   } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
@@ -2975,7 +2963,7 @@ async function submitSection(si) {
     alert('Please fill in at least some checklist items before submitting.');
     return;
   }
-  const key = `${currentDealer}_${si}_${today()}`;
+  const key = `${currentDealer}_${si}`;
   const sub = {
     key,
     dealer: currentDealer,
@@ -3019,12 +3007,7 @@ function switchPanel(id, el) {
   };
   document.getElementById('panelTitle').textContent = titles[id] || id;
   if (id === 'history') loadHistoryData();
-  if (id === 'manage') {
-    const countEl = document.getElementById('clMgmtCount');
-    if (countEl) countEl.textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
-    if (clMgmtOpen) renderClMgmt();
-    renderDealerManagement();
-  }
+  if (id === 'manage') renderClMgmt();
 }
 
 function renderAdmin() {
@@ -3399,22 +3382,11 @@ async function toggleSection(dealerId, secIdx) {
 function getItemPerms(dealer, si) {
   // dealer.itemPerms: { [si]: [true,true,false,...] }
   if (!dealer.itemPerms) dealer.itemPerms = {};
-  // If no saved perms for this section yet, default ALL to true (first-time setup)
   if (!dealer.itemPerms[si]) {
     dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[si];
   }
-  // If the saved array is from before a major checklist expansion (less than half the
-  // current length), treat it as stale and reset ALL to true so no items go missing.
-  if (dealer.itemPerms[si].length < Math.ceil(CHECKLISTS[si].items.length / 2)) {
-    dealer.itemPerms[si] = CHECKLISTS[si].items.map(() => true);
-    return dealer.itemPerms[si];
-  }
-  // Saved perms exist and are reasonably current — extend if checklist grew, padding with TRUE
+  // Ensure array length matches checklist
   while (dealer.itemPerms[si].length < CHECKLISTS[si].items.length) dealer.itemPerms[si].push(true);
-  // Trim if checklist shrank
-  if (dealer.itemPerms[si].length > CHECKLISTS[si].items.length)
-    dealer.itemPerms[si] = dealer.itemPerms[si].slice(0, CHECKLISTS[si].items.length);
   return dealer.itemPerms[si];
 }
 
@@ -3621,8 +3593,9 @@ const HIST_PAGE_SIZE = 50;
 /* Called once on init — pull full Submissions sheet then seed year picker */
 async function loadHistoryData() {
   try {
-    const all = await gasGet('getAll');
-    const subs = all.subs || [];
+    // Use getAllHistory — returns ALL submissions across all dates (not today-only like getAll)
+    const res = await gasGet('getAllHistory');
+    const subs = res.subs || [];
 
     // Build flat rows from Submissions sheet
     histAllRows = subs.map(row => ({
@@ -3667,7 +3640,7 @@ function initHistoryFilters() {
 }
 
 function clearHistoryFilters() {
-  ['histYear','histMonth','histDealer','histSection','histStatus'].forEach(id => {
+  ['histDate','histYear','histMonth','histDealer','histSection','histStatus'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -3683,13 +3656,23 @@ function histPage(delta) {
 
 function renderHistory() {
   histCurrentPage = 1;
+  const dateVal = document.getElementById('histDate')   ?.value || ''; // YYYY-MM-DD
   const year    = document.getElementById('histYear')   ?.value || '';
   const month   = document.getElementById('histMonth')  ?.value || '';
   const dealer  = document.getElementById('histDealer') ?.value || '';
   const section = document.getElementById('histSection')?.value || '';
   const status  = document.getElementById('histStatus') ?.value || '';
 
+  // Convert YYYY-MM-DD date picker value to "DD Mon YYYY" format for matching
+  let specificDate = '';
+  if (dateVal) {
+    const d = new Date(dateVal + 'T00:00:00');
+    specificDate = d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  }
+
   histFiltered = histAllRows.filter(r => {
+    // Specific date overrides year/month filters
+    if (specificDate) return r.date === specificDate;
     // date format: "DD Mon YYYY" e.g. "02 Jun 2026"
     if (year && !r.date.includes(year))  return false;
     if (month) {
@@ -3948,19 +3931,6 @@ window.addEventListener('DOMContentLoaded', () => {
 //  CHECKLIST ITEM MANAGER (Admin Panel)
 // ═══════════════════════════════════════════════════════════
 let clMgmtSection = 0; // currently active section in manager
-
-let clMgmtOpen = false;
-
-function toggleClMgmt() {
-  clMgmtOpen = !clMgmtOpen;
-  const body = document.getElementById('clMgmtBody');
-  const chevron = document.getElementById('clMgmtChevron');
-  const hint = document.getElementById('clMgmtExpandHint');
-  if (body) body.style.display = clMgmtOpen ? '' : 'none';
-  if (chevron) { chevron.style.transform = clMgmtOpen ? 'rotate(90deg)' : 'rotate(0deg)'; }
-  if (hint) hint.textContent = clMgmtOpen ? 'click to collapse' : 'click to expand';
-  if (clMgmtOpen) renderClMgmt();
-}
 
 function renderClMgmt() {
   // Build section tabs
