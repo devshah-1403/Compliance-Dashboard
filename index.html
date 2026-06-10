@@ -2574,28 +2574,22 @@ async function gasGet(action, url) {
 async function gasPost(body) {
   const action = body.action;
 
-  // Strip itemPerms arrays that are all-true (the default) to massively shrink payload
+  // Compress itemPerms — strip all-true arrays (the default) to shrink payload
   let data = body.data;
   if (action === 'saveDealers' && Array.isArray(data)) {
     data = data.map(d => {
-      const compressed = { id: d.id, name: d.name, pass: d.pass, sections: d.sections };
-      // Only include itemPerms if any value is false — skip all-true arrays entirely
       const ip = d.itemPerms || {};
       const compressedPerms = {};
-      let hasCustom = false;
       Object.entries(ip).forEach(([si, arr]) => {
         if (Array.isArray(arr) && arr.some(v => v === false)) {
           compressedPerms[si] = arr;
-          hasCustom = true;
         }
       });
-      if (hasCustom) compressed.itemPerms = compressedPerms;
-      else compressed.itemPerms = {};
-      return compressed;
+      return { id: d.id, name: d.name, pass: d.pass, sections: d.sections, itemPerms: compressedPerms };
     });
   }
 
-  // Split into chunks of 15 to stay well under URL limits
+  // Chunk large arrays into groups of 15
   if ((action === 'saveDealers' || action === 'saveChecklists') && Array.isArray(data) && data.length > 15) {
     const CHUNK = 15;
     const chunkAction = action === 'saveDealers' ? 'saveDealersChunk' : 'saveChecklistsChunk';
@@ -2615,8 +2609,16 @@ async function _gasGet(action, data, offset) {
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    // redirect:'manual' prevents fetch from following Google's auth redirects,
+    // which would balloon the URL to 17KB+ and cause ERR_FAILED
+    const res = await fetch(url, { redirect: 'manual', signal: ctrl.signal });
     clearTimeout(timer);
+    // GAS returns 302 on success (redirect to the actual response) — a manual redirect
+    // means we get an opaque response (type='opaqueredirect'). We treat that as success
+    // for write operations since the data was already saved before the redirect fires.
+    if (res.type === 'opaqueredirect' || res.status === 0 || res.status === 302) {
+      return { ok: true };
+    }
     const json = await res.json();
     if (json && json.error) throw new Error(json.error);
     return { ok: true };
