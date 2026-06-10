@@ -2370,6 +2370,18 @@ function doGet(e) {
       return jsonResp(saveAdmin(data));
     }
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
+    if (action === 'saveDealersChunk') {
+      const data   = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      const offset = parseInt(e.parameter.offset || '0', 10);
+      const total  = parseInt(e.parameter.total  || '0', 10);
+      return jsonResp(saveDealersChunk(data, offset, total));
+    }
+    if (action === 'saveChecklistsChunk') {
+      const data   = JSON.parse(decodeURIComponent(e.parameter.data || '[]'));
+      const offset = parseInt(e.parameter.offset || '0', 10);
+      const total  = parseInt(e.parameter.total  || '0', 10);
+      return jsonResp(saveChecklistsChunk(data, offset, total));
+    }
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action: ' + action });
 }
@@ -2460,6 +2472,36 @@ function saveDealers(dealers) {
     JSON.stringify(d.itemPerms || {})
   ]));
   return { ok: true };
+}
+
+// Chunked version — offset 0 clears and rewrites header, subsequent chunks append
+function saveDealersChunk(dealers, offset, total) {
+  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
+  if (offset === 0) {
+    sh.clearContents();
+    sh.appendRow(['id','name','pass','sections','itemPerms']);
+  }
+  dealers.forEach(d => sh.appendRow([
+    d.id, d.name, d.pass,
+    JSON.stringify(d.sections),
+    JSON.stringify(d.itemPerms || {})
+  ]));
+  return { ok: true, offset: offset, written: dealers.length };
+}
+
+function saveChecklistsChunk(checklists, offset, total) {
+  const sh = getSheet('Checklists', ['section_index','section_name','item_index','item_text']);
+  if (offset === 0) {
+    sh.clearContents();
+    sh.appendRow(['section_index','section_name','item_index','item_text']);
+  }
+  checklists.forEach((sec, localIdx) => {
+    const si = offset + localIdx;
+    sec.items.forEach((item, idx) => {
+      sh.appendRow([si, sec.name, idx, item]);
+    });
+  });
+  return { ok: true, offset: offset };
 }
 
 function saveAdmin(admin) {
@@ -2572,15 +2614,38 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // GAS cross-origin: use GET with URL-encoded data (more reliable than no-cors POST)
-  // doGet on GAS side handles saveSubmission, saveDealers etc via ?action=&data=
+  // GAS Web Apps support CORS for GET but not POST (OPTIONS preflight is not handled).
+  // For large payloads (81 dealers), a single GET URL exceeds ~8KB and gets ERR_FAILED.
+  // Fix: split large dealer/checklist arrays into chunks of ≤20 items per request.
   const action = body.action;
-  const data   = body.data !== undefined ? encodeURIComponent(JSON.stringify(body.data)) : '';
-  const url    = GAS_URL + '?action=' + action + '&data=' + data + '&t=' + Date.now();
-  const ctrl   = new AbortController();
-  const timer  = setTimeout(() => ctrl.abort(), 15000);
+
+  // Actions that can be chunked (arrays)
+  if ((action === 'saveDealers' || action === 'saveChecklists') && Array.isArray(body.data)) {
+    const CHUNK = 20;
+    const arr = body.data;
+    if (arr.length > CHUNK) {
+      // Send in chunks; GAS merges them via saveDealersChunk / saveChecklistsChunk
+      const chunkAction = action === 'saveDealers' ? 'saveDealersChunk' : 'saveChecklistsChunk';
+      // First call clears existing data, subsequent calls append
+      for (let i = 0; i < arr.length; i += CHUNK) {
+        const chunk = arr.slice(i, i + CHUNK);
+        await _gasGetPost(chunkAction, { data: chunk, offset: i, total: arr.length });
+      }
+      return { ok: true };
+    }
+  }
+
+  return _gasGetPost(action, body);
+}
+
+async function _gasGetPost(action, body) {
+  const data = body.data !== undefined ? encodeURIComponent(JSON.stringify(body.data)) : '';
+  const extra = body.offset !== undefined ? `&offset=${body.offset}&total=${body.total}` : '';
+  const url   = GAS_URL + '?action=' + action + '&data=' + data + extra + '&t=' + Date.now();
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const res = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
     clearTimeout(timer);
     const json = await res.json();
     if (json && json.error) throw new Error(json.error);
