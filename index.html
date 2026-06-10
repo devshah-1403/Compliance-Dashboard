@@ -2574,28 +2574,48 @@ async function gasGet(action, url) {
 async function gasPost(body) {
   const action = body.action;
 
-  // For large dealer/checklist arrays, split into chunks of 20 to avoid URL length limits
-  if ((action === 'saveDealers' || action === 'saveChecklists') && Array.isArray(body.data) && body.data.length > 20) {
-    const CHUNK = 20;
-    const arr = body.data;
+  // Strip itemPerms arrays that are all-true (the default) to massively shrink payload
+  let data = body.data;
+  if (action === 'saveDealers' && Array.isArray(data)) {
+    data = data.map(d => {
+      const compressed = { id: d.id, name: d.name, pass: d.pass, sections: d.sections };
+      // Only include itemPerms if any value is false — skip all-true arrays entirely
+      const ip = d.itemPerms || {};
+      const compressedPerms = {};
+      let hasCustom = false;
+      Object.entries(ip).forEach(([si, arr]) => {
+        if (Array.isArray(arr) && arr.some(v => v === false)) {
+          compressedPerms[si] = arr;
+          hasCustom = true;
+        }
+      });
+      if (hasCustom) compressed.itemPerms = compressedPerms;
+      else compressed.itemPerms = {};
+      return compressed;
+    });
+  }
+
+  // Split into chunks of 15 to stay well under URL limits
+  if ((action === 'saveDealers' || action === 'saveChecklists') && Array.isArray(data) && data.length > 15) {
+    const CHUNK = 15;
     const chunkAction = action === 'saveDealers' ? 'saveDealersChunk' : 'saveChecklistsChunk';
-    for (let i = 0; i < arr.length; i += CHUNK) {
-      await _gasGet(chunkAction, arr.slice(i, i + CHUNK), i);
+    for (let i = 0; i < data.length; i += CHUNK) {
+      await _gasGet(chunkAction, data.slice(i, i + CHUNK), i);
     }
     return { ok: true };
   }
 
-  return _gasGet(action, body.data);
+  return _gasGet(action, data);
 }
 
 async function _gasGet(action, data, offset) {
-  const dataStr = data !== undefined ? encodeURIComponent(JSON.stringify(data)) : '';
+  const dataStr   = data !== undefined ? encodeURIComponent(JSON.stringify(data)) : '';
   const offsetStr = offset !== undefined ? '&offset=' + offset : '';
-  const url = GAS_URL + '?action=' + action + '&data=' + dataStr + offsetStr + '&t=' + Date.now();
-  const ctrl = new AbortController();
+  const url       = GAS_URL + '?action=' + action + '&data=' + dataStr + offsetStr + '&t=' + Date.now();
+  const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const res = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
     clearTimeout(timer);
     const json = await res.json();
     if (json && json.error) throw new Error(json.error);
