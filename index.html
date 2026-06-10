@@ -3151,40 +3151,53 @@ async function submitSection(si) {
   const dealer  = dealerRegistry[currentDealer];
   const perms   = dealer ? getItemPerms(dealer, si) : section.items.map(() => true);
   let valid = true;
-  const data = [];
+  const data = [];      // ALL items (for local state / restore)
+  const filledData = []; // ONLY filled items (sent to Sheets — reduces rows dramatically)
 
-  // Only collect items that are actually assigned to this dealer
   section.items.forEach((item, idx) => {
-    if (!perms[idx]) return; // skip items not assigned
-    const uid   = `s${si}_i${idx}_${currentDealer}`;
-    const selEl = document.querySelector(`input[name="${uid}"]:checked`);
-    const remEl = document.getElementById(`rem-${uid}`);
+    if (!perms[idx]) return;
+    const uid     = `s${si}_i${idx}_${currentDealer}`;
+    const selEl   = document.querySelector(`input[name="${uid}"]:checked`);
+    const remEl   = document.getElementById(`rem-${uid}`);
     const status  = selEl ? selEl.value : '';
     const remarks = remEl ? remEl.value.trim() : '';
     if (status === 'partial' || status === 'notdone') {
       if (!remarks) { if (remEl) remEl.classList.add('mandatory'); valid = false; }
     }
     data.push({ item, status, remarks });
+    // Only include rows where the dealer actually selected a status
+    if (status) filledData.push({ item, status, remarks });
   });
 
   if (!valid) {
     alert('⚠️ Please add mandatory remarks for all "Partial" and "Not Done" items.');
     return;
   }
-  if (!data.some(d => d.status)) {
+  if (!filledData.length) {
     alert('Please fill in at least some checklist items before submitting.');
     return;
   }
   const key = `${currentDealer}_${si}`;
+  // Local sub keeps all data (for UI restore), Sheets sub only sends filled rows
   const sub = {
     key,
     dealer: currentDealer,
     dealerName: DEALER_NAMES[currentDealer],
     section: si,
     sectionName: section.name,
-    data,
+    data,          // full local copy (includes empty rows for restore)
     time: nowTime(),
     date: today()
+  };
+  const subForSheets = {
+    key,
+    dealer: currentDealer,
+    dealerName: DEALER_NAMES[currentDealer],
+    section: si,
+    sectionName: section.name,
+    data: filledData,  // only filled rows → fewer Sheets rows → faster save
+    time: sub.time,
+    date: sub.date
   };
   const btn = document.getElementById(`submit-btn-${si}`);
   // OPTIMISTIC UPDATE — show success immediately, save in background
@@ -3192,10 +3205,9 @@ async function submitSection(si) {
   document.getElementById(`submit-msg-${si}`).classList.add('show');
   btn.disabled    = true;
   btn.textContent = '✓ Submitted';
-  // Save to Sheets in background — don't block the UI
-  gasPost({ action: 'saveSubmission', data: sub }).catch(e => {
+  // Save only filled rows to Sheets — much faster
+  gasPost({ action: 'saveSubmission', data: subForSheets }).catch(e => {
     console.warn('[submitSection] background save failed:', e);
-    // Show a subtle warning without blocking
     showToast('⚠️ Save may have failed — check connection', 'error');
   });
 }
