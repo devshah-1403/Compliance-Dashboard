@@ -2570,18 +2570,14 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // GAS web apps redirect POST internally — response is always opaque.
-  // Use no-cors POST (fire & forget) then GET ping to confirm reachability.
-  await fetch(GAS_URL, {
+  // Fire-and-forget POST — no ping round-trip needed.
+  // GAS web apps always return opaque responses to cross-origin POST.
+  fetch(GAS_URL, {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(body)
-  });
-  // Ping confirms GAS is alive; throws if network is down
-  const ping = await fetch(GAS_URL + '?action=ping&t=' + Date.now(), { redirect: 'follow' });
-  const pj = await ping.json();
-  if (pj && pj.error) throw new Error(pj.error);
+  }).catch(e => console.warn('[gasPost] network error:', e));
   return { ok: true };
 }
 
@@ -2860,66 +2856,66 @@ async function dealerLogin() {
   document.getElementById('dealerSub').textContent      = `Fill in your assigned checklist sections for ${today()}.`;
   document.getElementById('currentDate').textContent    = today();
 
-  // Always re-fetch latest checklists from Sheets before rendering
-  // (handles case where admin updated tasks after this session started)
+  // INSTANT: render checklist immediately with cached data, then refresh in background
+  renderChecklists();
+  setView('dealerDash');
+
+  // Background refresh — fetch only today's data for this dealer (fast)
+  _bgRefreshDealer(sel);
+}
+
+async function _bgRefreshDealer(sel) {
+  // Compute today's IST date string
+  const ist = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const todayGAS = `${String(ist.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()]} ${ist.getUTCFullYear()}`;
+
   try {
-    const clData = await gasGet('getChecklists');
+    // Parallel fetch: checklists + today's data for this dealer only
+    const [clData, hist] = await Promise.all([
+      gasGet('getChecklists'),
+      gasGet('getAllHistory')
+    ]);
+
+    // Update checklists if changed
+    let clChanged = false;
     if (clData && clData.checklists && clData.checklists.length > 0) {
       clData.checklists.forEach((sec, i) => {
-        if (CHECKLISTS[i]) {
+        if (CHECKLISTS[i] && (CHECKLISTS[i].name !== sec.name || JSON.stringify(CHECKLISTS[i].items) !== JSON.stringify(sec.items))) {
           CHECKLISTS[i].name  = sec.name;
           CHECKLISTS[i].items = sec.items;
+          clChanged = true;
         }
       });
     }
-  } catch(e) { console.warn('[GAS] checklist refresh failed:', e); }
 
-  // Re-fetch ALL history for this dealer from Sheets and rebuild submissions
-  try {
-    const hist = await gasGet('getAllHistory');
-    const allSubs = hist.subs || [];
-    console.log('[dealerLogin] getAllHistory rows:', allSubs.length);
-
-    // Find today's date string as GAS would store it (dd MMM yyyy in IST)
-    const now = new Date();
-    const istOffset = 5.5 * 60 * 60 * 1000;
-    const ist = new Date(now.getTime() + istOffset);
-    const dd  = String(ist.getUTCDate()).padStart(2,'0');
-    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()];
-    const yyyy = ist.getUTCFullYear();
-    const todayGAS = `${dd} ${mon} ${yyyy}`;
-    console.log('[dealerLogin] todayGAS:', todayGAS);
-
-    // Filter to this dealer + today only
-    // Normalize dates first (Sheets may return ISO strings like "2026-06-05T00:00:00.000Z")
-    const myRows = allSubs.filter(r =>
-      String(r.dealer).trim() === sel &&
-      normalizeDate(r.date) === todayGAS
+    // Rebuild today's submissions for this dealer
+    const myRows = (hist.subs || []).filter(r =>
+      String(r.dealer).trim() === sel && normalizeDate(r.date) === todayGAS
     );
-    console.log('[dealerLogin] myRows for today:', myRows.length, '| todayGAS:', todayGAS);
+    // Only update if server has more data than we do locally
+    const serverKeys = new Set(myRows.map(r => String(r.key || `${r.dealer}_${r.section}`).trim()));
+    const localKeys  = new Set(Object.keys(submissions).filter(k => k.startsWith(sel + '_')));
+    const hasNew = [...serverKeys].some(k => !localKeys.has(k));
 
-    // Wipe and rebuild
-    Object.keys(submissions).forEach(k => { if (k.startsWith(sel + '_')) delete submissions[k]; });
-    myRows.forEach(row => {
-      const key = String(row.key || `${row.dealer}_${row.section}`).trim();
-      if (!submissions[key]) {
-        submissions[key] = {
-          key, dealer: row.dealer, dealerName: row.dealerName,
-          section: Number(row.section), sectionName: row.sectionName,
-          data: [], time: normalizeTime(row.time), date: normalizeDate(row.date)
-        };
-      }
-      submissions[key].data.push({
-        item:    String(row.item    || '').trim(),
-        status:  String(row.status  || '').trim(),
-        remarks: String(row.remarks || '').trim()
+    if (hasNew || clChanged) {
+      Object.keys(submissions).forEach(k => { if (k.startsWith(sel + '_')) delete submissions[k]; });
+      myRows.forEach(row => {
+        const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+        if (!submissions[key]) {
+          submissions[key] = {
+            key, dealer: row.dealer, dealerName: row.dealerName,
+            section: Number(row.section), sectionName: row.sectionName,
+            data: [], time: normalizeTime(row.time), date: normalizeDate(row.date)
+          };
+        }
+        submissions[key].data.push({
+          item: String(row.item||'').trim(), status: String(row.status||'').trim(), remarks: String(row.remarks||'').trim()
+        });
       });
-    });
-    console.log('[dealerLogin] rebuilt submissions keys:', Object.keys(submissions));
-  } catch(e) { console.warn('[dealerLogin] fresh fetch failed:', e); }
-
-  renderChecklists();
-  setView('dealerDash');
+      // Silently re-render if dealer is still logged in
+      if (currentDealer === sel) renderChecklists();
+    }
+  } catch(e) { console.warn('[bgRefresh] failed:', e); }
 }
 
 function dealerLogout() {
@@ -3191,18 +3187,17 @@ async function submitSection(si) {
     date: today()
   };
   const btn = document.getElementById(`submit-btn-${si}`);
+  // OPTIMISTIC UPDATE — show success immediately, save in background
+  submissions[key] = sub;
+  document.getElementById(`submit-msg-${si}`).classList.add('show');
   btn.disabled    = true;
-  btn.textContent = 'Saving…';
-  try {
-    await gasPost({ action: 'saveSubmission', data: sub });
-    submissions[key] = sub;
-    document.getElementById(`submit-msg-${si}`).classList.add('show');
-    btn.textContent = '✓ Submitted';
-  } catch(e) {
-    alert('Failed to save to Google Sheets. Please try again.');
-    btn.disabled    = false;
-    btn.textContent = 'Submit Section';
-  }
+  btn.textContent = '✓ Submitted';
+  // Save to Sheets in background — don't block the UI
+  gasPost({ action: 'saveSubmission', data: sub }).catch(e => {
+    console.warn('[submitSection] background save failed:', e);
+    // Show a subtle warning without blocking
+    showToast('⚠️ Save may have failed — check connection', 'error');
+  });
 }
 
 /* ═══════════════════════════════
