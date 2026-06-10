@@ -2476,14 +2476,13 @@ function saveSubmission(sub) {
   for (let i = vals.length - 1; i >= 1; i--) {
     if (String(vals[i][0]) === String(sub.key)) sh.deleteRow(i + 1);
   }
-  let rowIdx = 0;
-  sub.data.forEach((d) => {
-    if (!d.status || String(d.status).trim() === '') return; // skip unfilled rows
-    rowIdx++;
+  // SERVER-SIDE GUARD: only write rows that have a status — skip unfilled items
+  const filledRows = (sub.data || []).filter(d => d.status && String(d.status).trim() !== '');
+  filledRows.forEach((d, idx) => {
     sh.appendRow([sub.key, sub.dealer, sub.dealerName, sub.section, sub.sectionName,
-      rowIdx, d.item, d.status, d.remarks, sub.date, sub.time]);
+      idx + 1, d.item, d.status, d.remarks || '', sub.date, sub.time]);
   });
-  return { ok: true };
+  return { ok: true, written: filledRows.length };
 }
 
 function clearSubmissions() {
@@ -2573,15 +2572,23 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // Fire-and-forget POST — no ping round-trip needed.
-  // GAS web apps always return opaque responses to cross-origin POST.
-  fetch(GAS_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(body)
-  }).catch(e => console.warn('[gasPost] network error:', e));
-  return { ok: true };
+  // GAS cross-origin: use GET with URL-encoded data (more reliable than no-cors POST)
+  // doGet on GAS side handles saveSubmission, saveDealers etc via ?action=&data=
+  const action = body.action;
+  const data   = body.data !== undefined ? encodeURIComponent(JSON.stringify(body.data)) : '';
+  const url    = GAS_URL + '?action=' + action + '&data=' + data + '&t=' + Date.now();
+  const ctrl   = new AbortController();
+  const timer  = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    clearTimeout(timer);
+    const json = await res.json();
+    if (json && json.error) throw new Error(json.error);
+    return { ok: true };
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
 }
 
 /* ── DATA ── */
