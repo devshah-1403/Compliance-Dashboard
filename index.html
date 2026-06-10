@@ -2476,9 +2476,12 @@ function saveSubmission(sub) {
   for (let i = vals.length - 1; i >= 1; i--) {
     if (String(vals[i][0]) === String(sub.key)) sh.deleteRow(i + 1);
   }
-  sub.data.forEach((d, idx) => {
+  let rowIdx = 0;
+  sub.data.forEach((d) => {
+    if (!d.status || String(d.status).trim() === '') return; // skip unfilled rows
+    rowIdx++;
     sh.appendRow([sub.key, sub.dealer, sub.dealerName, sub.section, sub.sectionName,
-      idx + 1, d.item, d.status, d.remarks, sub.date, sub.time]);
+      rowIdx, d.item, d.status, d.remarks, sub.date, sub.time]);
   });
   return { ok: true };
 }
@@ -3340,9 +3343,10 @@ function buildOverviewRows() {
   let rows = [];
 
   if (selectedDMY === todayDMY) {
-    // Use live submissions for today
+    // Use live submissions for today — only filled items
     Object.values(submissions).forEach(sub => {
       sub.data.forEach((d, idx) => {
+        if (!d.status) return; // skip unfilled
         rows.push({
           dealer: sub.dealer, dealerName: sub.dealerName,
           section: sub.section, sectionName: sub.sectionName,
@@ -3464,10 +3468,11 @@ function refreshFilterDropdowns() {
 }
 
 function buildRows() {
-  // Builds rows from today's live submissions (used by Submissions panel)
+  // Builds rows from today's live submissions — only filled items
   let rows = [];
   Object.values(submissions).forEach(sub => {
     sub.data.forEach((d, idx) => {
+      if (!d.status) return; // skip unfilled items
       rows.push({
         dealer: sub.dealer, dealerName: sub.dealerName,
         section: sub.section, sectionName: sub.sectionName,
