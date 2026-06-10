@@ -3040,14 +3040,14 @@ function renderChecklists() {
   });
   // After restoring all sections, update overall pct
   updateOverallPct();
-  // Show submitted state on buttons
+  // Show submitted state on buttons — keep button enabled for re-submits
   CHECKLISTS.forEach((_, si) => {
     const subKey = `${currentDealer}_${si}`;
     if (submissions[subKey]) {
       const msgEl = document.getElementById(`submit-msg-${si}`);
       const btnEl = document.getElementById(`submit-btn-${si}`);
       if (msgEl) msgEl.classList.add('show');
-      if (btnEl) { btnEl.textContent = '✓ Submitted'; }
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = 'Re-submit'; }
     }
   });
 }
@@ -3210,11 +3210,17 @@ async function submitSection(si) {
     date: sub.date
   };
   const btn = document.getElementById(`submit-btn-${si}`);
-  // OPTIMISTIC UPDATE — show success immediately, save in background
+  // OPTIMISTIC UPDATE — show success immediately, keep button active for re-submits
   submissions[key] = sub;
-  document.getElementById(`submit-msg-${si}`).classList.add('show');
-  btn.disabled    = true;
-  btn.textContent = '✓ Submitted';
+  const msgEl = document.getElementById(`submit-msg-${si}`);
+  if (msgEl) msgEl.classList.add('show');
+  // Flash the button briefly, then restore — dealer may want to re-submit with more items
+  btn.textContent = 'Saving…';
+  btn.disabled = true;
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Re-submit';
+  }, 1200);
   // Save only filled rows to Sheets — much faster
   gasPost({ action: 'saveSubmission', data: subForSheets }).catch(e => {
     console.warn('[submitSection] background save failed:', e);
