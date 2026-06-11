@@ -2473,16 +2473,35 @@ function saveAdmin(admin) {
 function saveSubmission(sub) {
   const sh = getSheet('Submissions', ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']);
   const vals = sh.getDataRange().getValues();
+
+  // Helper: normalize any date value from Sheets into "DD Mon YYYY" string
+  // Sheets stores dates as Date objects — String() gives "Thu Jun 10 2026 00:00:00 GMT+0530"
+  function fmtSheetDate(val) {
+    if (!val) return '';
+    if (val instanceof Date) {
+      // Use IST offset to get correct calendar date
+      const ist = new Date(val.getTime() + (5.5 * 60 * 60 * 1000));
+      const dd  = String(ist.getUTCDate()).padStart(2, '0');
+      const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()];
+      const yyyy = ist.getUTCFullYear();
+      return dd + ' ' + mon + ' ' + yyyy;
+    }
+    // Already a string — return as-is (trimmed)
+    return String(val).trim();
+  }
+
+  const todayStr = sub.date; // e.g. "11 Jun 2026" — sent from client
+
   // DATE-SAFE DELETE: only remove rows matching BOTH key AND today's date
-  // This preserves all historical (yesterday/past) entries untouched
-  const todayStr = sub.date; // date string sent from client (e.g. "10 Jun 2026")
+  // Yesterday's and older rows are NEVER touched
   for (let i = vals.length - 1; i >= 1; i--) {
     const rowKey  = String(vals[i][0]).trim();
-    const rowDate = String(vals[i][9]).trim(); // column index 9 = 'date'
+    const rowDate = fmtSheetDate(vals[i][9]); // normalize Sheets Date object
     if (rowKey === String(sub.key) && rowDate === todayStr) {
       sh.deleteRow(i + 1);
     }
   }
+
   // Only write rows that have a status — skip unfilled items
   const filledRows = (sub.data || []).filter(d => d.status && String(d.status).trim() !== '');
   filledRows.forEach((d, idx) => {
