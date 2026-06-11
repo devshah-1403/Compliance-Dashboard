@@ -2598,17 +2598,31 @@ async function gasGet(action, url) {
 }
 
 async function gasPost(body) {
-  // GAS cross-origin: use GET with URL-encoded data (more reliable than no-cors POST)
-  // doGet on GAS side handles saveSubmission, saveDealers etc via ?action=&data=
-  const action = body.action;
-  const data   = body.data !== undefined ? encodeURIComponent(JSON.stringify(body.data)) : '';
-  const url    = GAS_URL + '?action=' + action + '&data=' + data + '&t=' + Date.now();
-  const ctrl   = new AbortController();
-  const timer  = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const res = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+  // GAS cross-origin: use GET for small payloads, no-cors POST for large ones
+  const action     = body.action;
+  const dataStr    = body.data !== undefined ? JSON.stringify(body.data) : '';
+  const encoded    = encodeURIComponent(dataStr);
+  const url        = GAS_URL + '?action=' + action + '&data=' + encoded + '&t=' + Date.now();
+  const ctrl       = new AbortController();
+  const timer      = setTimeout(() => ctrl.abort(), 15000);
+
+  // If URL would be too long (>7000 chars), fall back to no-cors POST
+  if (url.length > 7000) {
     clearTimeout(timer);
-    const json = await res.json();
+    fetch(GAS_URL, {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body)
+    }).catch(e => console.warn('[gasPost POST fallback]', e));
+    return { ok: true };
+  }
+
+  try {
+    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    clearTimeout(timer);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
     if (json && json.error) throw new Error(json.error);
     return { ok: true };
   } catch(e) {
