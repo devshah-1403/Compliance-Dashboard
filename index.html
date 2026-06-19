@@ -2385,7 +2385,6 @@ function doGet(e) {
       return jsonResp(saveAdmin(data));
     }
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
-    if (action === 'getItemCodeFiles') return jsonResp(getItemCodeFiles());
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action: ' + action });
 }
@@ -2400,8 +2399,6 @@ function doPost(e) {
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
     if (action === 'saveChecklists')   return jsonResp(saveChecklists(body.data));
     if (action === 'getAllHistory')     return jsonResp(getAllHistory());
-    if (action === 'saveItemCodesFile') return jsonResp(saveItemCodesFile(body.data));
-    if (action === 'getItemCodeFiles')  return jsonResp(getItemCodeFiles());
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action' });
 }
@@ -2469,14 +2466,13 @@ function getSheetData(name) {
 }
 
 function saveDealers(dealers) {
-  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms','itemImportPerms']);
+  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
   sh.clearContents();
-  sh.appendRow(['id','name','pass','sections','itemPerms','itemImportPerms']);
+  sh.appendRow(['id','name','pass','sections','itemPerms']);
   dealers.forEach(d => sh.appendRow([
     d.id, d.name, d.pass,
     JSON.stringify(d.sections),
-    JSON.stringify(d.itemPerms || {}),
-    JSON.stringify(d.itemImportPerms || {})
+    JSON.stringify(d.itemPerms || {})
   ]));
   return { ok: true };
 }
@@ -2487,58 +2483,6 @@ function saveAdmin(admin) {
   sh.appendRow(['user','pass']);
   sh.appendRow([admin.user, admin.pass]);
   return { ok: true };
-}
-
-// ─── ITEM CODE FILES — dealer-uploaded Excel files of codes, saved to Drive
-// so admin can open/download them directly instead of digging through Sheets ───
-function getCodeFilesFolder() {
-  const FOLDER_NAME = 'NBS Compliance — Item Code Uploads';
-  const root = DriveApp.getRootFolder();
-  const existing = root.getFoldersByName(FOLDER_NAME);
-  if (existing.hasNext()) return existing.next();
-  return root.createFolder(FOLDER_NAME);
-}
-
-function saveItemCodesFile(payload) {
-  // payload: { dealerId, dealerName, section, sectionName, itemIdx, item, fileName, base64, count, date, time }
-  const folder = getCodeFilesFolder();
-  const mimeType = MimeType.MICROSOFT_EXCEL;
-  const decoded = Utilities.base64Decode(payload.base64);
-  const blob = Utilities.newBlob(decoded, mimeType, payload.fileName || 'codes.xlsx');
-  const safeName = \`\${payload.dealerId}_\${payload.date}_\${(payload.item || 'item').slice(0,40)}_\${payload.fileName || 'codes.xlsx'}\`;
-  blob.setName(safeName);
-  const file = folder.createFile(blob);
-  // Make link-accessible to anyone in the org with the link (matches "Anyone" web app deployment trust level)
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  const url = file.getUrl();
-
-  const sh = getSheet('ItemCodeFiles', ['dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl']);
-  sh.appendRow([
-    payload.dealerId, payload.dealerName, payload.section, payload.sectionName,
-    payload.itemIdx, payload.item, payload.fileName, payload.count,
-    payload.date, payload.time, url
-  ]);
-
-  return { ok: true, url: url };
-}
-
-function getItemCodeFiles() {
-  const sh = SS.getSheetByName('ItemCodeFiles');
-  if (!sh || sh.getLastRow() <= 1) return { files: [] };
-  const COLS = ['dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl'];
-  const numRows = sh.getLastRow() - 1;
-  const data = sh.getRange(2, 1, numRows, COLS.length).getValues();
-  const files = data
-    .filter(row => row[0] && String(row[0]).trim() !== '')
-    .map(row => {
-      const obj = {};
-      COLS.forEach((h, i) => obj[h] = row[i]);
-      obj['date'] = obj['date'] instanceof Date
-        ? Utilities.formatDate(obj['date'], 'Asia/Kolkata', 'dd MMM yyyy')
-        : String(obj['date'] || '').trim();
-      return obj;
-    });
-  return { files: files };
 }
 
 function saveSubmission(sub) {
@@ -2759,8 +2703,7 @@ async function saveDealers() {
     name: d.name,
     pass: d.pass,
     sections: d.sections ?? [0,1,2],
-    itemPerms: d.itemPerms ?? {},
-    itemImportPerms: d.itemImportPerms ?? {}
+    itemPerms: d.itemPerms ?? {}
   }));
   await gasPost({ action: 'saveDealers', data: arr });
 }
@@ -2806,13 +2749,6 @@ async function initApp() {
             try { return JSON.parse(d.itemPerms); } catch(e) { return {}; }
           }
           return d.itemPerms;
-        })(),
-        itemImportPerms: (() => {
-          if (!d.itemImportPerms) return {};
-          if (typeof d.itemImportPerms === 'string') {
-            try { return JSON.parse(d.itemImportPerms); } catch(e) { return {}; }
-          }
-          return d.itemImportPerms;
         })()
       };
     });
@@ -3199,8 +3135,6 @@ function renderChecklists() {
       if (!perms[idx]) return; // item not assigned to this dealer
       visibleCount++;
       const uid = `s${si}_i${idx}_${currentDealer}`;
-      const importPerms = getItemImportPerms(dealer, si);
-      const canImport = !!importPerms[idx];
       const row = document.createElement('div');
       row.className = 'cl-row';
       row.id = `row-${uid}`;
@@ -3214,11 +3148,6 @@ function renderChecklists() {
           <label for="${uid}_p" class="status-label"><span class="dot"></span>Partial</label>
           <input type="radio" name="${uid}" value="notdone" id="${uid}_n" class="status-radio" onchange="onStatusChange('${uid}',${si})">
           <label for="${uid}_n" class="status-label"><span class="dot"></span>Not Done</label>
-          ${canImport ? `
-          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:20px;border:1px solid var(--border2);background:var(--glass);margin-left:2px" title="Import a code list for this task">
-            <input type="file" accept=".xlsx" style="display:none" onchange="importCodesForItem(this,'${uid}','${currentDealer}')">
-            <span style="font-size:11px;color:var(--accent2)">📥</span>
-          </label>` : ''}
         </div>
         <div class="col-remarks remarks-area">
           <textarea class="remarks-input" id="rem-${uid}" placeholder="Add remark…" rows="1"
@@ -3911,17 +3840,6 @@ function statusChip(s) {
   return `<span class="status-chip ${cls}">${label}</span>`;
 }
 
-// Detect "... — https://drive.google.com/..." pattern in remarks and render
-// the URL as a clickable "View File" button instead of a raw long link.
-function formatRemarksCell(remarks) {
-  if (!remarks) return '<span style="color:var(--text4)">—</span>';
-  const m = String(remarks).match(/(https:\/\/drive\.google\.com\/\S+)/);
-  if (!m) return remarks;
-  const url = m[1];
-  const text = remarks.slice(0, m.index).replace(/[\s—-]+$/, '');
-  return `${text} <a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--accent-dim);color:var(--accent2);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">📄 View File</a>`;
-}
-
 function renderTable(rows) {
   const tbody = document.getElementById('adminTableBody');
   const cnt   = document.getElementById('tableCount');
@@ -3945,7 +3863,7 @@ function renderTable(rows) {
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${String(r.itemIdx).padStart(2,'0')}</td>
       <td style="font-size:13px">${r.item}</td>
       <td>${statusChip(r.status)}</td>
-      <td class="remarks-cell">${formatRemarksCell(r.remarks)}</td>
+      <td class="remarks-cell">${r.remarks || '<span style="color:var(--text4)">—</span>'}</td>
       <td class="time-cell">${r.date}<br>${r.time}</td>
     </tr>`).join('');
 }
@@ -4180,22 +4098,11 @@ function getItemPerms(dealer, si) {
   return dealer.itemPerms[si];
 }
 
-function getItemImportPerms(dealer, si) {
-  // dealer.itemImportPerms: { [si]: [false,true,false,...] } — per-item "allow Excel code import"
-  if (!dealer.itemImportPerms) dealer.itemImportPerms = {};
-  if (!dealer.itemImportPerms[si]) {
-    dealer.itemImportPerms[si] = CHECKLISTS[si].items.map(() => false);
-  }
-  while (dealer.itemImportPerms[si].length < CHECKLISTS[si].items.length) dealer.itemImportPerms[si].push(false);
-  return dealer.itemImportPerms[si];
-}
-
 function openItemPermsModal(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
   const sectionName = CHECKLISTS[si].name;
   const items = CHECKLISTS[si].items;
   const perms = getItemPerms(dealer, si);
-  const importPerms = getItemImportPerms(dealer, si);
 
   // Remove existing modal
   const old = document.getElementById('itemPermsModal');
@@ -4230,22 +4137,16 @@ function openItemPermsModal(dealerId, si) {
 
       <div style="overflow-y:auto;padding:0.5rem 1rem">
         ${items.map((item, idx) => `
-          <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border)"
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background .1s;border-bottom:1px solid var(--border)"
             onmouseover="this.style.background='var(--glass)'" onmouseout="this.style.background='transparent'">
             <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
               onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
               style="width:14px;height:14px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-            <span style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
+            <span style="font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
               <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text4);margin-right:6px">${String(idx+1).padStart(2,'0')}</span>
               ${item}
             </span>
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:2px 8px;border-radius:12px;background:${importPerms[idx] ? 'var(--accent-dim)' : 'var(--glass)'};border:1px solid ${importPerms[idx] ? 'rgba(59,123,255,0.3)' : 'var(--border2)'}" title="Allow this dealer to import a code list (Excel) for this task instead of typing remarks">
-              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importPerms[idx] ? 'checked' : ''}
-                onchange="toggleItemImportPerm('${dealerId}',${si},${idx},this.checked)"
-                style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer">
-              <span style="font-size:10px;font-weight:600;color:${importPerms[idx] ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Import</span>
-            </label>
-          </div>`).join('')}
+          </label>`).join('')}
       </div>
 
       <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
@@ -4266,7 +4167,7 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   const perms = getItemPerms(dealer, si);
   perms[idx] = checked;
   // Update label color inline
-  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('div')?.querySelector('span');
+  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('label')?.querySelector('span:last-child');
   if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   // Update count label
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4274,19 +4175,6 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   // Update select-all checkbox state
   const allBox = document.getElementById(`selectAllItems_${dealerId}_${si}`);
   if (allBox) allBox.checked = perms.every(Boolean);
-}
-
-function toggleItemImportPerm(dealerId, si, idx, checked) {
-  const dealer = dealerRegistry[dealerId];
-  const importPerms = getItemImportPerms(dealer, si);
-  importPerms[idx] = checked;
-  const wrap = document.getElementById(`itemimport_${dealerId}_${si}_${idx}`)?.closest('label');
-  if (wrap) {
-    wrap.style.background = checked ? 'var(--accent-dim)' : 'var(--glass)';
-    wrap.style.borderColor = checked ? 'rgba(59,123,255,0.3)' : 'var(--border2)';
-    const txt = wrap.querySelector('span');
-    if (txt) txt.style.color = checked ? 'var(--accent2)' : 'var(--text3)';
-  }
 }
 
 function toggleAllItems(dealerId, si, checked) {
@@ -4297,7 +4185,7 @@ function toggleAllItems(dealerId, si, checked) {
   CHECKLISTS[si].items.forEach((_, idx) => {
     const cb = document.getElementById(`itemperm_${dealerId}_${si}_${idx}`);
     if (cb) { cb.checked = checked; }
-    const lbl = cb?.closest('div')?.querySelector('span');
+    const lbl = cb?.closest('label')?.querySelector('span:last-child');
     if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   });
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4721,7 +4609,7 @@ function renderHistoryTable() {
       <td style="font-size:11px;color:var(--text2)">${r.sectionName || '—'}</td>
       <td style="font-size:11px;max-width:240px">${r.item || '—'}</td>
       <td><span class="${s.cls}" style="font-size:10px;padding:2px 8px;border-radius:20px;white-space:nowrap">${s.label}</span></td>
-      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${formatRemarksCell(r.remarks)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${r.remarks || '—'}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${r.time || '—'}</td>
     </tr>`;
   }).join('');
@@ -4987,115 +4875,6 @@ const CL_SHEET_MAP = {
   "Back Office Ops":   1,
   "KYC Department":    2
 };
-
-// ═══════════════════════════════════════════════════════════
-//  PER-ITEM CODE IMPORT — dealer uploads a list of codes (no
-//  status/remarks parsing — just counts the codes into remarks)
-// ═══════════════════════════════════════════════════════════
-async function importCodesForItem(input, uid, dealerId) {
-  const file = input.files[0];
-  if (!file) return;
-  const fileName = file.name;
-
-  // uid format: s{si}_i{idx}_{dealerId}
-  const m = uid.match(/^s(\d+)_i(\d+)_/);
-  const si  = m ? Number(m[1]) : null;
-  const idx = m ? Number(m[2]) : null;
-  const section = si !== null ? CHECKLISTS[si] : null;
-  const itemText = section ? section.items[idx] : '';
-
-  const remEl = document.getElementById(`rem-${uid}`);
-  const origRemPlaceholder = remEl ? remEl.value : '';
-
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const firstSheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-    const codes = rows
-      .map(r => String(r[0] || '').trim())
-      .filter(v => v !== '');
-
-    if (codes.length === 0) {
-      showToast('No codes found in that file.', 'error');
-      input.value = '';
-      return;
-    }
-
-    showToast(`Uploading ${fileName}…`, 'success');
-    if (remEl) remEl.value = `Uploading ${fileName}…`;
-
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    const effectiveDate = dealerSelectedDate || today();
-    const payload = {
-      dealerId,
-      dealerName: DEALER_NAMES[dealerId] || dealerId,
-      section: si,
-      sectionName: section ? section.name : '',
-      itemIdx: idx,
-      item: itemText,
-      fileName,
-      base64,
-      count: codes.length,
-      date: effectiveDate,
-      time: nowTime()
-    };
-
-    // This must round-trip a real response (not the no-cors fire-and-forget path),
-    // since we need the Drive URL back — so we POST with CORS directly.
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'saveItemCodesFile', data: payload })
-    });
-    const json = await res.json();
-    if (json.error) throw new Error(json.error);
-
-    if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, count: codes.length, url: json.url };
-
-    // Auto-fill the remarks field with a summary + link, so admin sees it directly in Submissions too
-    if (remEl) {
-      remEl.value = `${codes.length} codes uploaded (${fileName}) — ${json.url}`;
-      remEl.classList.remove('mandatory');
-    }
-    // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
-    const alreadyChecked = document.querySelector(`input[name="${uid}"]:checked`);
-    if (!alreadyChecked) {
-      const completedRadio = document.querySelector(`input[name="${uid}"][value="completed"]`);
-      if (completedRadio) {
-        completedRadio.checked = true;
-        completedRadio.dispatchEvent(new Event('change'));
-      }
-    }
-    showToast(`✓ ${codes.length} codes uploaded — admin can now access the file`, 'success');
-  } catch (err) {
-    console.error('[importCodesForItem]', err);
-    if (remEl) remEl.value = origRemPlaceholder;
-    showToast('Upload failed — check connection and try again.', 'error');
-  } finally {
-    input.value = '';
-  }
-}
-
-// Admin-facing: fetch all uploaded code files (across all dealers/dates)
-async function loadItemCodeFiles() {
-  try {
-    const res = await gasGet('getItemCodeFiles');
-    return (res && res.files) ? res.files : [];
-  } catch (e) {
-    console.error('[loadItemCodeFiles]', e);
-    return [];
-  }
-}
-
-
 
 async function clImportExcel(input) {
   const file = input.files[0];
