@@ -2505,7 +2505,7 @@ function saveItemCodesFile(payload) {
   const mimeType = MimeType.MICROSOFT_EXCEL;
   const decoded = Utilities.base64Decode(payload.base64);
   const blob = Utilities.newBlob(decoded, mimeType, payload.fileName || 'codes.xlsx');
-  const safeName = `${payload.dealerId}_${payload.date}_${(payload.item || 'item').slice(0,40)}_${payload.fileName || 'codes.xlsx'}`;
+  const safeName = \`\${payload.dealerId}_\${payload.date}_\${(payload.item || 'item').slice(0,40)}_\${payload.fileName || 'codes.xlsx'}\`;
   blob.setName(safeName);
   const file = folder.createFile(blob);
   // Make link-accessible to anyone in the org with the link (matches "Anyone" web app deployment trust level)
