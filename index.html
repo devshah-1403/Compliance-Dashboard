@@ -1752,9 +1752,11 @@ body {
             <div class="uid" id="dealerUID">—</div>
           </div>
         </div>
-        <div class="date-chip">
+        <div class="date-chip" style="position:relative;cursor:pointer" onclick="toggleDealerDatePicker(event)">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="2" width="10" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 1v2M8 1v2M1 5h10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           <span id="currentDate">—</span>
+          <svg width="9" height="9" viewBox="0 0 9 9" fill="none" style="margin-left:2px"><path d="M2 3.5L4.5 6L7 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div id="dealerDateDropdown" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:var(--ink2);border:1px solid var(--border2);border-radius:10px;padding:6px;min-width:170px;max-height:280px;overflow-y:auto;z-index:500;box-shadow:0 8px 24px rgba(0,0,0,0.4)"></div>
         </div>
         <button class="btn-sm" onclick="dealerLogout()">Sign Out</button>
       </div>
@@ -2084,9 +2086,22 @@ body {
 
       <!-- ─── PAST DATA PANEL ─── -->
       <div class="admin-panel" id="panel-history">
-        <div class="panel-header">
-          <h2>Past Data</h2>
-          <p>Historical compliance records — drill into any date, dealer or section across the last 5 years.</p>
+        <div class="panel-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <h2>Past Data</h2>
+            <p>Historical compliance records — drill into any date, dealer or section across the last 5 years.</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <label style="white-space:nowrap;cursor:pointer">
+              <input type="file" id="pastDataExcelImport" accept=".xlsx" style="display:none" onchange="importPastDataExcel(this)">
+              <span class="btn-submit" style="padding:8px 18px;background:var(--ink4);border:1px solid var(--border2);color:var(--text2);cursor:pointer"
+                onclick="document.getElementById('pastDataExcelImport').click()">📤 Upload Past Data</span>
+            </label>
+            <a href="#" onclick="downloadPastDataTemplate(event)"
+              style="white-space:nowrap;font-size:12px;color:var(--accent2);text-decoration:none;padding:8px 4px">
+              ⬇ Download Template
+            </a>
+          </div>
         </div>
 
         <!-- Controls row -->
@@ -2852,6 +2867,7 @@ function refreshDealerMaps() {
 
 let currentDealer = null;
 let submissions = {};
+let dealerSelectedDate = null; // null = today; otherwise "DD Mon YYYY" string for past-date editing
 
 /* ── UTILS ── */
 function today() {
@@ -2859,6 +2875,104 @@ function today() {
 }
 function nowTime() {
   return new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+}
+
+// ─── DEALER DATE PICKER — lets dealers view/edit any day in the last 30 days ───
+function getLast30Days() {
+  const days = [];
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(Date.now() - i * 86400000 + 5.5*60*60*1000); // IST-adjusted
+    const dd   = String(d.getUTCDate()).padStart(2,'0');
+    const mon  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+    const yyyy = d.getUTCFullYear();
+    days.push({ dmy: `${dd} ${mon} ${yyyy}`, label: i === 0 ? 'Today' : (i === 1 ? 'Yesterday' : `${dd} ${mon} ${yyyy}`) });
+  }
+  return days;
+}
+
+function toggleDealerDatePicker(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('dealerDateDropdown');
+  if (!dd) return;
+  const isOpen = dd.style.display === 'block';
+  if (isOpen) { dd.style.display = 'none'; return; }
+
+  const days = getLast30Days();
+  dd.innerHTML = days.map(d => `
+    <div onclick="selectDealerDate('${d.dmy}')"
+      style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:12.5px;
+      background:${(dealerSelectedDate || today()) === d.dmy ? 'var(--accent)' : 'transparent'};
+      color:${(dealerSelectedDate || today()) === d.dmy ? '#fff' : 'var(--text2)'}"
+      onmouseover="if('${(dealerSelectedDate || today())}'!=='${d.dmy}')this.style.background='var(--ink3)'"
+      onmouseout="if('${(dealerSelectedDate || today())}'!=='${d.dmy}')this.style.background='transparent'">
+      ${d.label}
+    </div>
+  `).join('');
+  dd.style.display = 'block';
+
+  // Close on outside click (once)
+  setTimeout(() => {
+    document.addEventListener('click', closeDealerDatePickerOnce, { once: true });
+  }, 0);
+}
+
+function closeDealerDatePickerOnce() {
+  const dd = document.getElementById('dealerDateDropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+async function selectDealerDate(dmy) {
+  const isToday = dmy === today();
+  dealerSelectedDate = isToday ? null : dmy;
+
+  const chipLabel = document.getElementById('currentDate');
+  if (chipLabel) chipLabel.textContent = isToday ? today() : dmy;
+
+  // Visual indicator: highlight the date-chip when editing a past date
+  const chipEl = chipLabel ? chipLabel.closest('.date-chip') : null;
+  if (chipEl) {
+    chipEl.style.background = isToday ? '' : 'rgba(255,176,32,0.15)';
+    chipEl.style.borderColor = isToday ? '' : 'rgba(255,176,32,0.4)';
+    chipEl.style.color = isToday ? '' : '#FFB020';
+  }
+  const subLabel = document.getElementById('dealerSub');
+  if (subLabel) {
+    subLabel.textContent = isToday
+      ? `Fill in your assigned checklist sections for ${today()}.`
+      : `⚠️ Editing past data for ${dmy} — changes will update that day's records only.`;
+  }
+
+  const dd = document.getElementById('dealerDateDropdown');
+  if (dd) dd.style.display = 'none';
+
+  showToast(`Loading ${isToday ? "today's" : dmy + "'s"} checklist…`, 'success');
+
+  // Fetch that date's submissions for this dealer from history and rebuild local state
+  try {
+    const hist = await gasGet('getAllHistory');
+    const targetDmy = isToday ? today() : dmy;
+    const myRows = (hist.subs || []).filter(r =>
+      String(r.dealer).trim() === currentDealer && normalizeDate(r.date) === targetDmy
+    );
+    Object.keys(submissions).forEach(k => { if (k.startsWith(currentDealer + '_')) delete submissions[k]; });
+    myRows.forEach(row => {
+      const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+      if (!submissions[key]) {
+        submissions[key] = {
+          key, dealer: row.dealer, dealerName: row.dealerName,
+          section: Number(row.section), sectionName: row.sectionName,
+          data: [], time: normalizeTime(row.time), date: normalizeDate(row.date)
+        };
+      }
+      submissions[key].data.push({
+        item: String(row.item||'').trim(), status: String(row.status||'').trim(), remarks: String(row.remarks||'').trim()
+      });
+    });
+    renderChecklists();
+  } catch(e) {
+    console.warn('[selectDealerDate] failed:', e);
+    showToast('Failed to load that date — check connection', 'error');
+  }
 }
 function greet() {
   const h = new Date().getHours();
@@ -2895,6 +3009,7 @@ async function dealerLogin() {
   if (!dealer) { alert('Dealer not found.'); return; }
   if (String(pass) !== String(dealer.pass)) { alert('Incorrect password.'); return; }
   currentDealer = sel;
+  dealerSelectedDate = null; // always start fresh on today's date
   refreshDealerMaps();
   const name = dealer.name;
   const initials = name.split(' ').map(w=>w[0]).join('');
@@ -3228,6 +3343,7 @@ async function submitSection(si) {
     return;
   }
   const key = `${currentDealer}_${si}`;
+  const effectiveDate = dealerSelectedDate || today(); // respects past-date editing (last 30 days)
   // Local sub keeps all data (for UI restore), Sheets sub only sends filled rows
   const sub = {
     key,
@@ -3237,7 +3353,7 @@ async function submitSection(si) {
     sectionName: section.name,
     data,          // full local copy (includes empty rows for restore)
     time: nowTime(),
-    date: today()
+    date: effectiveDate
   };
   const subForSheets = {
     key,
@@ -4770,6 +4886,7 @@ async function clImportExcel(input) {
     const wb   = XLSX.read(buf, { type: 'array' });
     let imported = 0;
     let skipped  = 0;
+    let importedSections = [];
 
     // Process each sheet whose name matches a known section
     wb.SheetNames.forEach(sheetName => {
@@ -4807,16 +4924,20 @@ async function clImportExcel(input) {
       if (tasks.length === 0) { skipped++; return; }
 
       // Update CHECKLISTS
+      const prevLen = (CHECKLISTS[si].items || []).length;
       CHECKLISTS[si].items = tasks;
-      // Fix itemPerms for all dealers — trim/extend to match new count
+      // Fix itemPerms for all dealers — preserve existing perms for items that already
+      // existed; brand-new items (beyond prevLen) default to FALSE so admin explicitly
+      // grants access via the picker shown after import, instead of silently giving
+      // every dealer access to new tasks.
       Object.values(dealerRegistry).forEach(dealer => {
         if (!dealer.itemPerms) dealer.itemPerms = {};
         const existing = dealer.itemPerms[si] || [];
-        // Preserve existing perms, fill new items as true
         dealer.itemPerms[si] = tasks.map((_, idx) =>
-          existing[idx] !== undefined ? existing[idx] : true
+          idx < prevLen ? (existing[idx] !== undefined ? existing[idx] : true) : false
         );
       });
+      importedSections.push({ si, newCount: Math.max(0, tasks.length - prevLen) });
       imported++;
     });
 
@@ -4827,17 +4948,81 @@ async function clImportExcel(input) {
 
     // Re-render manager view
     renderClMgmt();
-    // Re-render dealer checklist if active
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
     showToast(
       `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
       'success'
     );
+
+    // If any section gained brand-new items, prompt admin to grant dealer access
+    const sectionsWithNewItems = importedSections.filter(s => s.newCount > 0);
+    if (sectionsWithNewItems.length > 0) {
+      openGrantAccessModal(sectionsWithNewItems);
+    }
   } catch (err) {
     console.error('[Import]', err);
     showToast('Failed to read Excel file. Make sure it is the NBS template format.', 'error');
   }
+}
+
+// ─── GRANT ACCESS MODAL — shown after importing checklist items with new tasks ───
+function openGrantAccessModal(sectionsWithNewItems) {
+  const old = document.getElementById('grantAccessModal');
+  if (old) old.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'grantAccessModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(10,11,15,0.9);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  const dealerIds = Object.keys(dealerRegistry);
+  const sectionLabel = sectionsWithNewItems
+    .map(s => `${CHECKLISTS[s.si].name} (+${s.newCount} new)`)
+    .join(', ');
+
+  modal.innerHTML = `
+    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border)">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">Grant Access to New Items</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px">${sectionLabel}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">New tasks default to <strong style="color:var(--text2)">no access</strong>. Select which dealers should see them — you can fine-tune per item later in Manage Dealers.</div>
+      </div>
+      <div style="padding:1rem 1.5rem;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+        ${dealerIds.map(id => `
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;cursor:pointer">
+            <input type="checkbox" class="grantAccessDealerChk" value="${id}" style="width:16px;height:16px;cursor:pointer">
+            <span style="font-size:13px">${dealerRegistry[id].name} <span style="color:var(--text3);font-size:11px">(${id})</span></span>
+          </label>
+        `).join('')}
+      </div>
+      <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('grantAccessModal').remove()" style="padding:9px 18px;background:var(--ink3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);cursor:pointer;font-size:13px">Skip</button>
+        <button onclick="applyGrantAccess(${JSON.stringify(sectionsWithNewItems).replace(/"/g,'&quot;')})" style="padding:9px 18px;background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Grant Access</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function applyGrantAccess(sectionsWithNewItems) {
+  const checked = Array.from(document.querySelectorAll('.grantAccessDealerChk:checked')).map(c => c.value);
+  checked.forEach(dealerId => {
+    const dealer = dealerRegistry[dealerId];
+    sectionsWithNewItems.forEach(({ si }) => {
+      const items = CHECKLISTS[si].items;
+      const perms = dealer.itemPerms[si] || items.map(() => false);
+      // Grant access only to the newly added tail items
+      const prevLen = items.length - (sectionsWithNewItems.find(s => s.si === si)?.newCount || 0);
+      for (let i = prevLen; i < items.length; i++) perms[i] = true;
+      dealer.itemPerms[si] = perms;
+    });
+  });
+  saveDealers().then(() => {
+    showToast(`Access granted to ${checked.length} dealer${checked.length!==1?'s':''}`, 'success');
+  }).catch(() => showToast('Saved locally — Sheets sync may be delayed', 'error'));
+  renderDealerManagement();
+  document.getElementById('grantAccessModal').remove();
 }
 
 // "Download Template" — generates a fresh copy of the template using current CHECKLISTS data
@@ -4879,6 +5064,125 @@ function clDownloadTemplate(e) {
 
   XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
   showToast('Template downloaded!', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PAST DATA UPLOAD — admin bulk-imports historical submissions
+// ═══════════════════════════════════════════════════════════
+
+function downloadPastDataTemplate(e) {
+  e.preventDefault();
+  const wb = XLSX.utils.book_new();
+
+  const instData = [
+    ["NBS Compliance Hub — Past Data Upload Template"],
+    ["Northeast Broking Services"],
+    [],
+    ["HOW TO USE"],
+    ["1. Fill one row per checklist item that was completed on a past date."],
+    ["2. Dealer ID must match an existing dealer ID exactly (see Manage Dealers)."],
+    ["3. Date format: DD MMM YYYY, e.g. 15 Jun 2026."],
+    ["4. Status must be one of: completed, partial, notdone."],
+    ["5. Section must be one of: 0 (Dealer Compliance), 1 (Back Office Ops), 2 (KYC Department)."],
+    ["6. Save and upload this file in Admin → Past Data → Upload Past Data."],
+    ["7. Existing entries for the same dealer+section+date will be replaced — not duplicated."],
+  ];
+  const wsInst = XLSX.utils.aoa_to_sheet(instData);
+  wsInst['!cols'] = [{ wch: 90 }];
+  XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
+
+  const sampleData = [
+    ["dealerId", "section", "item", "status", "remarks", "date", "time"],
+    ["RMCHO2", 0, "TERMINAL PASSWORD SECURED", "completed", "", "15 Jun 2026", "9:00 AM"],
+    ["RMCHO2", 0, "NO USE OF PERSONAL MOBILE FOR ORDERS", "partial", "Phone used briefly for call", "15 Jun 2026", "9:00 AM"],
+  ];
+  const wsData = XLSX.utils.aoa_to_sheet(sampleData);
+  wsData['!cols'] = [{ wch: 14 }, { wch: 9 }, { wch: 45 }, { wch: 12 }, { wch: 30 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsData, "PastData");
+
+  XLSX.writeFile(wb, "NBS_PastData_Upload_Template.xlsx");
+  showToast('Template downloaded!', 'success');
+}
+
+async function importPastDataExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type: 'array' });
+    const ws  = wb.Sheets['PastData'] || wb.Sheets[wb.SheetNames[wb.SheetNames.length - 1]];
+    if (!ws) { showToast('No "PastData" sheet found in file.', 'error'); return; }
+
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (rows.length === 0) { showToast('No data rows found.', 'error'); return; }
+
+    // Validate and group rows by dealer+section+date into submission objects
+    const groups = {}; // key: dealerId||section||date -> array of {item,status,remarks}
+    let skipped = 0;
+    rows.forEach(r => {
+      const dealerId = String(r.dealerId || '').trim();
+      const section  = Number(r.section);
+      const item     = String(r.item || '').trim();
+      const status   = String(r.status || '').trim();
+      const remarks  = String(r.remarks || '').trim();
+      const date     = String(r.date || '').trim();
+      const time     = String(r.time || '').trim() || '12:00 PM';
+
+      if (!dealerId || !dealerRegistry[dealerId] || !item || !status || !date) { skipped++; return; }
+      if (!['completed','partial','notdone'].includes(status)) { skipped++; return; }
+      if (!CHECKLISTS[section]) { skipped++; return; }
+
+      const key = `${dealerId}||${section}||${date}`;
+      if (!groups[key]) groups[key] = { dealerId, section, date, time, items: [] };
+      groups[key].items.push({ item, status, remarks });
+    });
+
+    const submissionKeys = Object.keys(groups);
+    if (submissionKeys.length === 0) {
+      showToast(`No valid rows found.${skipped ? ' ' + skipped + ' row(s) skipped — check dealer IDs and statuses.' : ''}`, 'error');
+      return;
+    }
+
+    showToast(`Uploading ${submissionKeys.length} submission group(s)…`, 'success');
+
+    // Send each group as a saveSubmission call (reuses existing date-safe backend logic)
+    let success = 0, failed = 0;
+    for (const key of submissionKeys) {
+      const g = groups[key];
+      const dealer = dealerRegistry[g.dealerId];
+      const sub = {
+        key: `${g.dealerId}_${g.section}`,
+        dealer: g.dealerId,
+        dealerName: dealer.name,
+        section: g.section,
+        sectionName: CHECKLISTS[g.section].name,
+        data: g.items,
+        date: g.date,
+        time: g.time,
+        isPastDataUpload: true // tells GAS to use this date instead of "today"
+      };
+      try {
+        await gasPost({ action: 'saveSubmission', data: sub });
+        success++;
+      } catch (e) {
+        console.warn('[importPastDataExcel] failed for', key, e);
+        failed++;
+      }
+    }
+
+    showToast(
+      `Past data import complete: ${success} saved${failed ? ', ' + failed + ' failed' : ''}${skipped ? ' (' + skipped + ' row(s) skipped)' : ''}`,
+      failed ? 'error' : 'success'
+    );
+
+    // Refresh history view
+    if (typeof loadHistoryData === 'function') loadHistoryData();
+  } catch (err) {
+    console.error('[importPastDataExcel]', err);
+    showToast('Failed to read Excel file. Make sure it matches the Past Data template.', 'error');
+  }
 }
 
 </script>
