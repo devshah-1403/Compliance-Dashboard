@@ -3393,34 +3393,55 @@ function buildOverviewRows() {
   const todayDMY    = isoToDMY(todayISO());
   const dealerFilter = document.getElementById('overviewDealerFilter')?.value || '';
 
-  let rows = [];
+  // Build the COMPLETE expected set for the selected date: every dealer x every
+  // assigned item. Overlay actual submitted status. Missing = 'Not Filled' (status:'').
+  let submittedLookup = {}; // key: `${dealer}_${section}_${item}` -> {status, remarks, time}
 
   if (selectedDMY === todayDMY) {
-    // Use live submissions for today — only filled items
     Object.values(submissions).forEach(sub => {
-      sub.data.forEach((d, idx) => {
-        if (!d.status) return; // skip unfilled
-        rows.push({
-          dealer: sub.dealer, dealerName: sub.dealerName,
-          section: sub.section, sectionName: sub.sectionName,
-          itemIdx: idx+1, item: d.item,
-          status: d.status, remarks: d.remarks,
-          time: sub.time, date: sub.date
-        });
+      sub.data.forEach(d => {
+        if (!d.status) return;
+        submittedLookup[`${sub.dealer}_${sub.section}_${d.item}`] = {
+          status: d.status, remarks: d.remarks, time: sub.time, date: sub.date
+        };
       });
     });
   } else {
-    // Use historical rows for the selected date
-    rows = histAllRows.filter(r => r.date === selectedDMY).map(r => ({
-      dealer: r.dealer, dealerName: r.dealerName,
-      section: Number(r.section), sectionName: r.sectionName,
-      itemIdx: r.itemIdx, item: r.item,
-      status: r.status, remarks: r.remarks,
-      time: r.time, date: r.date
-    }));
+    histAllRows.filter(r => r.date === selectedDMY).forEach(r => {
+      submittedLookup[`${r.dealer}_${Number(r.section)}_${r.item}`] = {
+        status: r.status, remarks: r.remarks, time: r.time, date: r.date
+      };
+    });
   }
 
-  if (dealerFilter) rows = rows.filter(r => r.dealer === dealerFilter);
+  let rows = [];
+  Object.keys(dealerRegistry).forEach(dealerId => {
+    if (dealerFilter && dealerId !== dealerFilter) return;
+    const dealer = dealerRegistry[dealerId];
+    const dealerName = DEALER_NAMES[dealerId] || dealer.name || dealerId;
+    const sectionsForDealer = dealer.sections ?? [0,1,2];
+
+    sectionsForDealer.forEach(si => {
+      const section = CHECKLISTS[si];
+      if (!section) return;
+      const perms = getItemPerms(dealer, si);
+
+      section.items.forEach((item, idx) => {
+        if (!perms[idx]) return;
+        const found = submittedLookup[`${dealerId}_${si}_${item}`];
+        rows.push({
+          dealer: dealerId, dealerName,
+          section: si, sectionName: section.name,
+          itemIdx: idx+1, item,
+          status: found ? found.status : '',
+          remarks: found ? found.remarks : '',
+          time: found ? found.time : '',
+          date: found ? found.date : selectedDMY
+        });
+      });
+    });
+  });
+
   return rows;
 }
 
