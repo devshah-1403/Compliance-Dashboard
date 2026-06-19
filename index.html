@@ -2399,8 +2399,39 @@ function doPost(e) {
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
     if (action === 'saveChecklists')   return jsonResp(saveChecklists(body.data));
     if (action === 'getAllHistory')     return jsonResp(getAllHistory());
+    if (action === 'saveItemFile')     return jsonResp(saveItemFile(body.data));
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action' });
+}
+
+// ─── FILE STORAGE — uploaded Excel files (per-item code imports) go to a
+// shared Drive folder so they're reachable from any PC via a link, not just
+// stuck in the browser tab that uploaded them. ───
+const FILES_FOLDER_NAME = 'NBS Compliance Hub - Uploaded Files';
+
+function getFilesFolder() {
+  const it = DriveApp.getFoldersByName(FILES_FOLDER_NAME);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(FILES_FOLDER_NAME);
+}
+
+// data: { uid, fileName, base64, dealer, dealerName, section, sectionName }
+// Returns the Drive file's shareable URL so the client can store just the
+// link (small) instead of the full base64 blob (large) going forward.
+function saveItemFile(data) {
+  const folder = getFilesFolder();
+  const bytes = Utilities.base64Decode(data.base64);
+  const safeName = (data.dealer || 'dealer') + '_' + (data.sectionName||'').replace(/[^a-zA-Z0-9]+/g,'_') + '_' + Date.now() + '_' + (data.fileName || 'upload.xlsx');
+  const blob = Utilities.newBlob(bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', safeName);
+  const file = folder.createFile(blob);
+  // Anyone with the link can view — so it opens from any PC without a Google login prompt
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return {
+    ok: true,
+    fileUrl: file.getUrl(),
+    fileId: file.getId(),
+    fileName: data.fileName || safeName
+  };
 }
 
 function jsonResp(data) {
@@ -2432,11 +2463,11 @@ function getAllHistory() {
   return { subs: getSubmissions() };
 }
 
-// Reads exactly 11 columns by position — immune to stray cells in other columns
+// Reads exactly 12 columns by position — immune to stray cells in other columns
 function getSubmissions() {
   const sh = SS.getSheetByName('Submissions');
   if (!sh || sh.getLastRow() <= 1) return [];
-  const COLS = ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time'];
+  const COLS = ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time','fileUrl'];
   const numRows = sh.getLastRow() - 1;
   const data = sh.getRange(2, 1, numRows, COLS.length).getValues();
   return data
@@ -2487,7 +2518,7 @@ function saveAdmin(admin) {
 }
 
 function saveSubmission(sub) {
-  const sh = getSheet('Submissions', ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']);
+  const sh = getSheet('Submissions', ['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time','fileUrl']);
   const vals = sh.getDataRange().getValues();
 
   // Helper: normalize any date value from Sheets into "DD Mon YYYY" string
@@ -2522,7 +2553,7 @@ function saveSubmission(sub) {
   const filledRows = (sub.data || []).filter(d => d.status && String(d.status).trim() !== '');
   filledRows.forEach((d, idx) => {
     sh.appendRow([sub.key, sub.dealer, sub.dealerName, sub.section, sub.sectionName,
-      idx + 1, d.item, d.status, d.remarks || '', sub.date, sub.time]);
+      idx + 1, d.item, d.status, d.remarks || '', sub.date, sub.time, d.fileUrl || '']);
   });
   return { ok: true, written: filledRows.length };
 }
@@ -2531,7 +2562,7 @@ function clearSubmissions() {
   const sh = SS.getSheetByName('Submissions');
   if (sh) {
     sh.clearContents();
-    sh.appendRow(['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time']);
+    sh.appendRow(['key','dealer','dealerName','section','sectionName','itemIdx','item','status','remarks','date','time','fileUrl']);
   }
   return { ok: true };
 }
@@ -2641,6 +2672,32 @@ async function gasPost(body) {
     try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
     if (json && json.error) throw new Error(json.error);
     return { ok: true };
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
+// Readable POST — unlike gasPost's no-cors fallback, this always reads the
+// actual JSON response back. Needed for file uploads, where we need the
+// Drive URL GAS hands back. GAS web apps respond with CORS-readable bodies
+// to plain POST requests (Content-Type: text/plain avoids a CORS preflight).
+async function gasPostReadable(body, timeoutMs = 30000) {
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(timer);
+    const text = await res.text();
+    const json = JSON.parse(text);
+    if (json && json.error) throw new Error(json.error);
+    return json;
   } catch(e) {
     clearTimeout(timer);
     throw e;
@@ -3205,6 +3262,12 @@ function renderChecklists() {
           const remEl = document.getElementById(`rem-${uid}`);
           if (remEl) remEl.value = entry.remarks;
         }
+        // Restore the uploaded file link (if any) so re-submitting this
+        // section doesn't silently drop the previously uploaded Excel.
+        if (entry.fileUrl) {
+          if (!window._itemImportFiles) window._itemImportFiles = {};
+          window._itemImportFiles[uid] = { fileUrl: entry.fileUrl, fileName: '', count: 0 };
+        }
       });
     }
     updateProgress(si);
@@ -3342,12 +3405,16 @@ async function submitSection(si) {
     const remEl   = document.getElementById(`rem-${uid}`);
     const status  = selEl ? selEl.value : '';
     const remarks = remEl ? remEl.value.trim() : '';
+    // If a code-list file was uploaded for this item, carry its Drive link
+    // along so it's saved with the submission and viewable by admin anywhere.
+    const importedFile = window._itemImportFiles && window._itemImportFiles[uid];
+    const fileUrl = importedFile ? importedFile.fileUrl : '';
     if (status === 'partial' || status === 'notdone') {
       if (!remarks) { if (remEl) remEl.classList.add('mandatory'); valid = false; }
     }
-    data.push({ item, status, remarks });
+    data.push({ item, status, remarks, fileUrl });
     // Only include rows where the dealer actually selected a status
-    if (status) filledData.push({ item, status, remarks });
+    if (status) filledData.push({ item, status, remarks, fileUrl });
   });
 
   if (!valid) {
@@ -4649,13 +4716,16 @@ function renderHistoryTable() {
 
   tbody.innerHTML = pageRows.map(r => {
     const s = STATUS_MAP[r.status] || { label: r.status || '—', cls: '' };
+    const fileLink = r.fileUrl
+      ? `<a href="${r.fileUrl}" target="_blank" rel="noopener" style="color:var(--accent2);text-decoration:none;font-size:11px;white-space:nowrap" title="Open uploaded Excel file">📎 File</a>`
+      : '';
     return `<tr>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap">${r.date || '—'}</td>
       <td><span class="dealer-pill ${DEALER_CLASSES[r.dealer] || 'dp-d1'}" style="font-size:10px">${r.dealer}</span> <span style="font-size:12px">${r.dealerName}</span></td>
       <td style="font-size:11px;color:var(--text2)">${r.sectionName || '—'}</td>
       <td style="font-size:11px;max-width:240px">${r.item || '—'}</td>
       <td><span class="${s.cls}" style="font-size:10px;padding:2px 8px;border-radius:20px;white-space:nowrap">${s.label}</span></td>
-      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${r.remarks || '—'}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${r.remarks || '—'} ${fileLink}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${r.time || '—'}</td>
     </tr>`;
   }).join('');
@@ -4924,12 +4994,24 @@ const CL_SHEET_MAP = {
 
 // ═══════════════════════════════════════════════════════════
 //  PER-ITEM CODE IMPORT — dealer uploads a list of codes (no
-//  status/remarks parsing — just counts the codes into remarks)
+//  status/remarks parsing — just counts the codes into remarks).
+//  The file itself is uploaded to a shared Google Drive folder via the
+//  GAS backend so it's reachable from any PC, not just kept in this tab's
+//  memory. window._itemImportFiles only ever holds the small returned
+//  {fileUrl, fileName, count} — never the base64 blob — and that object is
+//  what submitSection() reads to attach the link to the saved row.
 // ═══════════════════════════════════════════════════════════
 async function importCodesForItem(input, uid, dealerId) {
   const file = input.files[0];
   if (!file) return;
   const fileName = file.name;
+  const remEl = document.getElementById(`rem-${uid}`);
+
+  // Pull section context out of uid (format: s{si}_i{idx}_{dealerId})
+  const m = uid.match(/^s(\d+)_i(\d+)_/);
+  const si = m ? Number(m[1]) : null;
+  const sectionName = (si !== null && CHECKLISTS[si]) ? CHECKLISTS[si].name : '';
+
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
@@ -4945,7 +5027,12 @@ async function importCodesForItem(input, uid, dealerId) {
       return;
     }
 
-    // Store the raw codes + the file itself (base64) against this row, so admin can re-download later
+    if (remEl) {
+      remEl.value = `Uploading ${fileName}…`;
+      remEl.classList.remove('mandatory');
+    }
+    showToast(`Uploading ${fileName}…`, 'info');
+
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result.split(',')[1]);
@@ -4953,11 +5040,25 @@ async function importCodesForItem(input, uid, dealerId) {
       reader.readAsDataURL(file);
     });
 
-    if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, base64, count: codes.length };
+    // Upload to Drive via backend — this is what makes the file accessible
+    // from any PC afterward, instead of living only in this browser tab.
+    const res = await gasPostReadable({
+      action: 'saveItemFile',
+      data: {
+        uid, fileName, base64,
+        dealer: dealerId,
+        dealerName: DEALER_NAMES[dealerId] || dealerId,
+        section: si,
+        sectionName
+      }
+    });
 
-    // Auto-fill the remarks field with a summary
-    const remEl = document.getElementById(`rem-${uid}`);
+    if (!res || !res.ok || !res.fileUrl) throw new Error('Upload did not return a file link.');
+
+    if (!window._itemImportFiles) window._itemImportFiles = {};
+    window._itemImportFiles[uid] = { fileName, fileUrl: res.fileUrl, count: codes.length };
+
+    // Auto-fill the remarks field with a summary + clickable note
     if (remEl) {
       remEl.value = `${codes.length} codes uploaded (${fileName})`;
       remEl.classList.remove('mandatory');
@@ -4971,10 +5072,11 @@ async function importCodesForItem(input, uid, dealerId) {
         completedRadio.dispatchEvent(new Event('change'));
       }
     }
-    showToast(`✓ ${codes.length} codes imported from ${fileName}`, 'success');
+    showToast(`✓ ${codes.length} codes imported and file saved (${fileName})`, 'success');
   } catch (err) {
     console.error('[importCodesForItem]', err);
-    showToast('Failed to read that Excel file.', 'error');
+    if (remEl) remEl.value = '';
+    showToast('Failed to upload that Excel file. Check your connection and try again.', 'error');
   } finally {
     input.value = '';
   }
@@ -5054,10 +5156,19 @@ async function clImportExcel(input) {
     renderClMgmt();
     if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
 
-    showToast(
-      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
-      'success'
-    );
+    // PERSIST — without this, the import only lives in this browser tab and
+    // disappears on refresh or for anyone opening the dashboard elsewhere.
+    showToast('Saving import…', 'info');
+    try {
+      await Promise.all([saveChecklists(), saveDealers()]);
+      showToast(
+        `Imported ${imported} section${imported>1?'s':''} and saved!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
+        'success'
+      );
+    } catch (saveErr) {
+      console.error('[Import save]', saveErr);
+      showToast('Imported locally, but saving to the server failed — check your connection and re-import.', 'error');
+    }
 
     // If any section gained brand-new items, prompt admin to grant dealer access
     const sectionsWithNewItems = importedSections.filter(s => s.newCount > 0);
