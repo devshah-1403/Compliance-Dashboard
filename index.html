@@ -3521,20 +3521,44 @@ function refreshFilterDropdowns() {
 }
 
 function buildRows() {
-  // Builds rows from today's live submissions — only filled items
+  // Build the COMPLETE expected set: every dealer x every item assigned to them.
+  // Then overlay actual submitted status. Missing items show status:'' (Not Filled)
+  // instead of being invisible — this is what makes the "Not Filled" KPI work.
   let rows = [];
-  Object.values(submissions).forEach(sub => {
-    sub.data.forEach((d, idx) => {
-      if (!d.status) return; // skip unfilled items
-      rows.push({
-        dealer: sub.dealer, dealerName: sub.dealerName,
-        section: sub.section, sectionName: sub.sectionName,
-        itemIdx: idx+1, item: d.item,
-        status: d.status, remarks: d.remarks,
-        time: sub.time, date: sub.date
+
+  Object.keys(dealerRegistry).forEach(dealerId => {
+    const dealer = dealerRegistry[dealerId];
+    const dealerName = DEALER_NAMES[dealerId] || dealer.name || dealerId;
+    const sectionsForDealer = dealer.sections ?? [0,1,2];
+
+    sectionsForDealer.forEach(si => {
+      const section = CHECKLISTS[si];
+      if (!section) return;
+      const perms = getItemPerms(dealer, si);
+      const subKey = `${dealerId}_${si}`;
+      const sub = submissions[subKey];
+      // Build a lookup of submitted item->status for this dealer+section
+      const submittedMap = {};
+      if (sub && sub.data) {
+        sub.data.forEach(d => { if (d.status) submittedMap[d.item] = d; });
+      }
+
+      section.items.forEach((item, idx) => {
+        if (!perms[idx]) return; // skip items not assigned to this dealer
+        const submitted = submittedMap[item];
+        rows.push({
+          dealer: dealerId, dealerName,
+          section: si, sectionName: section.name,
+          itemIdx: idx+1, item,
+          status: submitted ? submitted.status : '',
+          remarks: submitted ? submitted.remarks : '',
+          time: submitted ? sub.time : '',
+          date: submitted ? sub.date : today()
+        });
       });
     });
   });
+
   return rows;
 }
 
