@@ -1803,6 +1803,15 @@ body {
             <div class="progress-track"><div class="progress-fill" id="prog-fill-0" style="width:0%"></div></div>
           </div>
           <span class="submit-msg" id="submit-msg-0">✓ Submitted</span>
+          <span id="xlimport-wrap-0" style="display:none;align-items:center;gap:8px">
+            <label style="cursor:pointer">
+              <input type="file" id="dealerExcelImport-0" accept=".xlsx" style="display:none" onchange="dealerImportExcel(this,0)">
+              <span class="btn-submit" style="background:var(--ink4);border:1px solid var(--border2);color:var(--text2)"
+                onclick="document.getElementById('dealerExcelImport-0').click()">📤 Import Not-Done List</span>
+            </label>
+            <a href="#" onclick="dealerDownloadNotDoneTemplate(0);return false;"
+              style="font-size:11px;color:var(--accent2);text-decoration:none;white-space:nowrap">⬇ Template</a>
+          </span>
           <button class="btn-submit" id="submit-btn-0" onclick="submitSection(0)">Submit Section</button>
         </div>
       </div>
@@ -1826,6 +1835,15 @@ body {
             <div class="progress-track"><div class="progress-fill" id="prog-fill-1" style="width:0%"></div></div>
           </div>
           <span class="submit-msg" id="submit-msg-1">✓ Submitted</span>
+          <span id="xlimport-wrap-1" style="display:none;align-items:center;gap:8px">
+            <label style="cursor:pointer">
+              <input type="file" id="dealerExcelImport-1" accept=".xlsx" style="display:none" onchange="dealerImportExcel(this,1)">
+              <span class="btn-submit" style="background:var(--ink4);border:1px solid var(--border2);color:var(--text2)"
+                onclick="document.getElementById('dealerExcelImport-1').click()">📤 Import Not-Done List</span>
+            </label>
+            <a href="#" onclick="dealerDownloadNotDoneTemplate(1);return false;"
+              style="font-size:11px;color:var(--accent2);text-decoration:none;white-space:nowrap">⬇ Template</a>
+          </span>
           <button class="btn-submit" id="submit-btn-1" onclick="submitSection(1)">Submit Section</button>
         </div>
       </div>
@@ -1849,6 +1867,15 @@ body {
             <div class="progress-track"><div class="progress-fill" id="prog-fill-2" style="width:0%"></div></div>
           </div>
           <span class="submit-msg" id="submit-msg-2">✓ Submitted</span>
+          <span id="xlimport-wrap-2" style="display:none;align-items:center;gap:8px">
+            <label style="cursor:pointer">
+              <input type="file" id="dealerExcelImport-2" accept=".xlsx" style="display:none" onchange="dealerImportExcel(this,2)">
+              <span class="btn-submit" style="background:var(--ink4);border:1px solid var(--border2);color:var(--text2)"
+                onclick="document.getElementById('dealerExcelImport-2').click()">📤 Import Not-Done List</span>
+            </label>
+            <a href="#" onclick="dealerDownloadNotDoneTemplate(2);return false;"
+              style="font-size:11px;color:var(--accent2);text-decoration:none;white-space:nowrap">⬇ Template</a>
+          </span>
           <button class="btn-submit" id="submit-btn-2" onclick="submitSection(2)">Submit Section</button>
         </div>
       </div>
@@ -2466,14 +2493,13 @@ function getSheetData(name) {
 }
 
 function saveDealers(dealers) {
-  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms','itemImportPerms']);
+  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
   sh.clearContents();
-  sh.appendRow(['id','name','pass','sections','itemPerms','itemImportPerms']);
+  sh.appendRow(['id','name','pass','sections','itemPerms']);
   dealers.forEach(d => sh.appendRow([
     d.id, d.name, d.pass,
     JSON.stringify(d.sections),
-    JSON.stringify(d.itemPerms || {}),
-    JSON.stringify(d.itemImportPerms || {})
+    JSON.stringify(d.itemPerms || {})
   ]));
   return { ok: true };
 }
@@ -2705,7 +2731,7 @@ async function saveDealers() {
     pass: d.pass,
     sections: d.sections ?? [0,1,2],
     itemPerms: d.itemPerms ?? {},
-    itemImportPerms: d.itemImportPerms ?? {}
+    excelImportPerms: d.excelImportPerms ?? {}
   }));
   await gasPost({ action: 'saveDealers', data: arr });
 }
@@ -2752,12 +2778,12 @@ async function initApp() {
           }
           return d.itemPerms;
         })(),
-        itemImportPerms: (() => {
-          if (!d.itemImportPerms) return {};
-          if (typeof d.itemImportPerms === 'string') {
-            try { return JSON.parse(d.itemImportPerms); } catch(e) { return {}; }
+        excelImportPerms: (() => {
+          if (!d.excelImportPerms) return {};
+          if (typeof d.excelImportPerms === 'string') {
+            try { return JSON.parse(d.excelImportPerms); } catch(e) { return {}; }
           }
-          return d.itemImportPerms;
+          return d.excelImportPerms;
         })()
       };
     });
@@ -3144,8 +3170,6 @@ function renderChecklists() {
       if (!perms[idx]) return; // item not assigned to this dealer
       visibleCount++;
       const uid = `s${si}_i${idx}_${currentDealer}`;
-      const importPerms = getItemImportPerms(dealer, si);
-      const canImport = !!importPerms[idx];
       const row = document.createElement('div');
       row.className = 'cl-row';
       row.id = `row-${uid}`;
@@ -3159,11 +3183,6 @@ function renderChecklists() {
           <label for="${uid}_p" class="status-label"><span class="dot"></span>Partial</label>
           <input type="radio" name="${uid}" value="notdone" id="${uid}_n" class="status-radio" onchange="onStatusChange('${uid}',${si})">
           <label for="${uid}_n" class="status-label"><span class="dot"></span>Not Done</label>
-          ${canImport ? `
-          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:20px;border:1px solid var(--border2);background:var(--glass);margin-left:2px" title="Import a code list for this task">
-            <input type="file" accept=".xlsx" style="display:none" onchange="importCodesForItem(this,'${uid}','${currentDealer}')">
-            <span style="font-size:11px;color:var(--accent2)">📥</span>
-          </label>` : ''}
         </div>
         <div class="col-remarks remarks-area">
           <textarea class="remarks-input" id="rem-${uid}" placeholder="Add remark…" rows="1"
@@ -3208,6 +3227,12 @@ function renderChecklists() {
       });
     }
     updateProgress(si);
+
+    // Show/hide "Import Not-Done List" button — only if this dealer has at least
+    // one item in this section where Excel import is explicitly allowed by admin.
+    const xlPerms = getExcelImportPerms(dealer, si);
+    const xlWrap = document.getElementById(`xlimport-wrap-${si}`);
+    if (xlWrap) xlWrap.style.display = xlPerms.some(Boolean) ? 'inline-flex' : 'none';
   });
   // After restoring all sections, update overall pct
   updateOverallPct();
@@ -4114,14 +4139,15 @@ function getItemPerms(dealer, si) {
   return dealer.itemPerms[si];
 }
 
-function getItemImportPerms(dealer, si) {
-  // dealer.itemImportPerms: { [si]: [false,true,false,...] } — per-item "allow Excel code import"
-  if (!dealer.itemImportPerms) dealer.itemImportPerms = {};
-  if (!dealer.itemImportPerms[si]) {
-    dealer.itemImportPerms[si] = CHECKLISTS[si].items.map(() => false);
+// Separate permission set: which items can be bulk-marked "Not Done" via Excel import.
+// Defaults to FALSE (admin must explicitly enable per item) — distinct from item access.
+function getExcelImportPerms(dealer, si) {
+  if (!dealer.excelImportPerms) dealer.excelImportPerms = {};
+  if (!dealer.excelImportPerms[si]) {
+    dealer.excelImportPerms[si] = CHECKLISTS[si].items.map(() => false);
   }
-  while (dealer.itemImportPerms[si].length < CHECKLISTS[si].items.length) dealer.itemImportPerms[si].push(false);
-  return dealer.itemImportPerms[si];
+  while (dealer.excelImportPerms[si].length < CHECKLISTS[si].items.length) dealer.excelImportPerms[si].push(false);
+  return dealer.excelImportPerms[si];
 }
 
 function openItemPermsModal(dealerId, si) {
@@ -4129,7 +4155,7 @@ function openItemPermsModal(dealerId, si) {
   const sectionName = CHECKLISTS[si].name;
   const items = CHECKLISTS[si].items;
   const perms = getItemPerms(dealer, si);
-  const importPerms = getItemImportPerms(dealer, si);
+  const xlPerms = getExcelImportPerms(dealer, si);
 
   // Remove existing modal
   const old = document.getElementById('itemPermsModal');
@@ -4143,7 +4169,7 @@ function openItemPermsModal(dealerId, si) {
   const allChecked = perms.every(Boolean);
 
   modal.innerHTML = `
-    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:660px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
         <div>
           <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${sectionName}</div>
@@ -4162,24 +4188,36 @@ function openItemPermsModal(dealerId, si) {
         <span style="font-size:11px;color:var(--text3);margin-left:auto" id="itemCountLabel_${dealerId}_${si}">${perms.filter(Boolean).length} of ${items.length} enabled</span>
       </div>
 
+      <div style="padding:0.5rem 1.5rem;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;font-size:10.5px;color:var(--text4)">
+        <span style="flex:1"></span>
+        <span style="width:54px;text-align:center">Access</span>
+        <span style="width:64px;text-align:center">Excel Import</span>
+      </div>
+
       <div style="overflow-y:auto;padding:0.5rem 1rem">
         ${items.map((item, idx) => `
           <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border)"
             onmouseover="this.style.background='var(--glass)'" onmouseout="this.style.background='transparent'">
-            <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
-              onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
-              style="width:14px;height:14px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-            <span style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
+            <span id="itemlabel_${dealerId}_${si}_${idx}" style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
               <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text4);margin-right:6px">${String(idx+1).padStart(2,'0')}</span>
               ${item}
             </span>
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:2px 8px;border-radius:12px;background:${importPerms[idx] ? 'var(--accent-dim)' : 'var(--glass)'};border:1px solid ${importPerms[idx] ? 'rgba(59,123,255,0.3)' : 'var(--border2)'}" title="Allow this dealer to import a code list (Excel) for this task instead of typing remarks">
-              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importPerms[idx] ? 'checked' : ''}
-                onchange="toggleItemImportPerm('${dealerId}',${si},${idx},this.checked)"
-                style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer">
-              <span style="font-size:10px;font-weight:600;color:${importPerms[idx] ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Import</span>
-            </label>
+            <span style="width:54px;text-align:center;flex-shrink:0">
+              <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
+                onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
+                style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer">
+            </span>
+            <span style="width:64px;text-align:center;flex-shrink:0">
+              <input type="checkbox" id="xlimportperm_${dealerId}_${si}_${idx}" ${xlPerms[idx] ? 'checked' : ''}
+                onchange="toggleExcelImportPerm('${dealerId}',${si},${idx},this.checked)"
+                title="Allow this item to be marked Not Done via dealer Excel import"
+                style="width:14px;height:14px;accent-color:#FFB020;cursor:pointer">
+            </span>
           </div>`).join('')}
+      </div>
+
+      <div style="padding:0.75rem 1.5rem;font-size:10.5px;color:var(--text4);border-top:1px solid var(--border)">
+        "Excel Import" lets the dealer bulk-mark this item as <strong style="color:#FFB020">Not Done</strong> by uploading a code list — it never auto-fills Completed or Partial.
       </div>
 
       <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
@@ -4188,6 +4226,123 @@ function openItemPermsModal(dealerId, si) {
       </div>
     </div>`;
   document.body.appendChild(modal);
+}
+
+function toggleExcelImportPerm(dealerId, si, idx, checked) {
+  const dealer = dealerRegistry[dealerId];
+  const xlPerms = getExcelImportPerms(dealer, si);
+  xlPerms[idx] = checked;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DEALER-SIDE: Import "Not Done" list via Excel
+//  Excel has ONE column of item numbers (matching the # shown in the checklist).
+//  Only items the admin has explicitly allowed (excelImportPerms) get touched.
+//  Everything else on the form is left exactly as-is.
+// ═══════════════════════════════════════════════════════════
+
+function dealerDownloadNotDoneTemplate(si) {
+  const dealer = dealerRegistry[currentDealer];
+  const perms = getItemPerms(dealer, si);     // which items are visible to this dealer at all
+  const xlPerms = getExcelImportPerms(dealer, si);
+  const section = CHECKLISTS[si];
+
+  // Use the SAME visible numbering the dealer sees on screen (sequential among permitted items),
+  // not the raw checklist index — otherwise numbers in the file won't match the UI.
+  let visibleCount = 0;
+  const allowedItems = [];
+  section.items.forEach((item, idx) => {
+    if (!perms[idx]) return; // not assigned to dealer at all — doesn't appear on screen
+    visibleCount++;
+    if (xlPerms[idx]) allowedItems.push({ visibleNo: visibleCount, idx, item });
+  });
+
+  const wb = XLSX.utils.book_new();
+  const aoa = [
+    ['ItemNo', 'ItemText (reference only — do not edit)'],
+    ...allowedItems.map(({ visibleNo, item }) => [visibleNo, item])
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 10 }, { wch: 60 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'NotDone');
+
+  const instWb = [
+    ['Mark items as Not Done'],
+    [''],
+    ['1. Delete rows for items that ARE done — keep only rows for items that are NOT done.'],
+    ['2. Do not edit the ItemNo column values.'],
+    ['3. Upload this file back using "Import Not-Done List" in the dealer checklist.'],
+    ['4. Only the listed item numbers will be marked Not Done — everything else stays unchanged.'],
+  ];
+  const wsInst = XLSX.utils.aoa_to_sheet(instWb);
+  wsInst['!cols'] = [{ wch: 80 }];
+  XLSX.utils.book_append_sheet(wb, wsInst, 'Instructions');
+
+  XLSX.writeFile(wb, `NotDone_${section.name.replace(/\s+/g,'_')}_${currentDealer}.xlsx`);
+}
+
+async function dealerImportExcel(input, si) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  const dealer = dealerRegistry[currentDealer];
+  const xlPerms = getExcelImportPerms(dealer, si);
+  const section = CHECKLISTS[si];
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type: 'array' });
+    const ws  = wb.Sheets['NotDone'] || wb.Sheets[wb.SheetNames[0]];
+    if (!ws) { showToast('No data sheet found in file.', 'error'); return; }
+
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    const visibleNos = rows
+      .slice(1)
+      .map(r => Number(r[0]))
+      .filter(n => Number.isInteger(n) && n >= 1);
+
+    if (visibleNos.length === 0) {
+      showToast('No valid item numbers found in the file.', 'error');
+      return;
+    }
+
+    // Build visibleNo -> raw idx map (same numbering the dealer sees on screen)
+    const perms = getItemPerms(dealer, si);
+    let visibleCount = 0;
+    const visibleToIdx = {};
+    section.items.forEach((item, idx) => {
+      if (!perms[idx]) return;
+      visibleCount++;
+      visibleToIdx[visibleCount] = idx;
+    });
+
+    let applied = 0, skipped = 0;
+    visibleNos.forEach(no => {
+      const idx = visibleToIdx[no];
+      if (idx === undefined) { skipped++; return; } // number doesn't exist on this dealer's list
+      if (!xlPerms[idx]) { skipped++; return; } // not permitted for this item — ignore
+      const uid = `s${si}_i${idx}_${currentDealer}`;
+      const radio = document.querySelector(`input[name="${uid}"][value="notdone"]`);
+      if (radio) {
+        radio.checked = true;
+        // Trigger existing onStatusChange handler so remark-mandatory logic applies
+        radio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      applied++;
+    });
+
+    updateProgress(si);
+    updateOverallPct();
+
+    showToast(
+      `Marked ${applied} item${applied!==1?'s':''} as Not Done.${skipped ? ' ('+skipped+' item(s) skipped — not permitted for Excel import)' : ''} Remember to add remarks and submit.`,
+      'success'
+    );
+  } catch (err) {
+    console.error('[dealerImportExcel]', err);
+    showToast('Failed to read Excel file. Make sure it matches the Not-Done template.', 'error');
+  }
 }
 
 function closeItemPermsModal() {
@@ -4200,7 +4355,7 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   const perms = getItemPerms(dealer, si);
   perms[idx] = checked;
   // Update label color inline
-  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('div')?.querySelector('span');
+  const lbl = document.getElementById(`itemlabel_${dealerId}_${si}_${idx}`);
   if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   // Update count label
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4208,19 +4363,6 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   // Update select-all checkbox state
   const allBox = document.getElementById(`selectAllItems_${dealerId}_${si}`);
   if (allBox) allBox.checked = perms.every(Boolean);
-}
-
-function toggleItemImportPerm(dealerId, si, idx, checked) {
-  const dealer = dealerRegistry[dealerId];
-  const importPerms = getItemImportPerms(dealer, si);
-  importPerms[idx] = checked;
-  const wrap = document.getElementById(`itemimport_${dealerId}_${si}_${idx}`)?.closest('label');
-  if (wrap) {
-    wrap.style.background = checked ? 'var(--accent-dim)' : 'var(--glass)';
-    wrap.style.borderColor = checked ? 'rgba(59,123,255,0.3)' : 'var(--border2)';
-    const txt = wrap.querySelector('span');
-    if (txt) txt.style.color = checked ? 'var(--accent2)' : 'var(--text3)';
-  }
 }
 
 function toggleAllItems(dealerId, si, checked) {
@@ -4231,7 +4373,7 @@ function toggleAllItems(dealerId, si, checked) {
   CHECKLISTS[si].items.forEach((_, idx) => {
     const cb = document.getElementById(`itemperm_${dealerId}_${si}_${idx}`);
     if (cb) { cb.checked = checked; }
-    const lbl = cb?.closest('div')?.querySelector('span');
+    const lbl = document.getElementById(`itemlabel_${dealerId}_${si}_${idx}`);
     if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   });
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4921,64 +5063,6 @@ const CL_SHEET_MAP = {
   "Back Office Ops":   1,
   "KYC Department":    2
 };
-
-// ═══════════════════════════════════════════════════════════
-//  PER-ITEM CODE IMPORT — dealer uploads a list of codes (no
-//  status/remarks parsing — just counts the codes into remarks)
-// ═══════════════════════════════════════════════════════════
-async function importCodesForItem(input, uid, dealerId) {
-  const file = input.files[0];
-  if (!file) return;
-  const fileName = file.name;
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const firstSheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-    const codes = rows
-      .map(r => String(r[0] || '').trim())
-      .filter(v => v !== '');
-
-    if (codes.length === 0) {
-      showToast('No codes found in that file.', 'error');
-      input.value = '';
-      return;
-    }
-
-    // Store the raw codes + the file itself (base64) against this row, so admin can re-download later
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, base64, count: codes.length };
-
-    // Auto-fill the remarks field with a summary
-    const remEl = document.getElementById(`rem-${uid}`);
-    if (remEl) {
-      remEl.value = `${codes.length} codes uploaded (${fileName})`;
-      remEl.classList.remove('mandatory');
-    }
-    // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
-    const alreadyChecked = document.querySelector(`input[name="${uid}"]:checked`);
-    if (!alreadyChecked) {
-      const completedRadio = document.querySelector(`input[name="${uid}"][value="completed"]`);
-      if (completedRadio) {
-        completedRadio.checked = true;
-        completedRadio.dispatchEvent(new Event('change'));
-      }
-    }
-    showToast(`✓ ${codes.length} codes imported from ${fileName}`, 'success');
-  } catch (err) {
-    console.error('[importCodesForItem]', err);
-    showToast('Failed to read that Excel file.', 'error');
-  } finally {
-    input.value = '';
-  }
-}
 
 async function clImportExcel(input) {
   const file = input.files[0];
