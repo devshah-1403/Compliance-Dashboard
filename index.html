@@ -2443,6 +2443,7 @@ function doGet(e) {
     }
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
     if (action === 'getItemCodeFiles') return jsonResp(getItemCodeFiles());
+    if (action === 'getCodeFileByUploadId') return jsonResp(getCodeFileByUploadId(e.parameter.uploadId));
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action: ' + action });
 }
@@ -2557,7 +2558,7 @@ function getCodeFilesFolder() {
 }
 
 function saveItemCodesFile(payload) {
-  // payload: { dealerId, dealerName, section, sectionName, itemIdx, item, fileName, base64, count, date, time }
+  // payload: { uploadId, dealerId, dealerName, section, sectionName, itemIdx, item, fileName, base64, count, date, time }
   const folder = getCodeFilesFolder();
   const mimeType = MimeType.MICROSOFT_EXCEL;
   const decoded = Utilities.base64Decode(payload.base64);
@@ -2569,9 +2570,9 @@ function saveItemCodesFile(payload) {
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   const url = file.getUrl();
 
-  const sh = getSheet('ItemCodeFiles', ['dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl']);
+  const sh = getSheet('ItemCodeFiles', ['uploadId','dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl']);
   sh.appendRow([
-    payload.dealerId, payload.dealerName, payload.section, payload.sectionName,
+    payload.uploadId || '', payload.dealerId, payload.dealerName, payload.section, payload.sectionName,
     payload.itemIdx, payload.item, payload.fileName, payload.count,
     payload.date, payload.time, url
   ]);
@@ -2579,14 +2580,27 @@ function saveItemCodesFile(payload) {
   return { ok: true, url: url };
 }
 
+function getCodeFileByUploadId(uploadId) {
+  const sh = SS.getSheetByName('ItemCodeFiles');
+  if (!sh || sh.getLastRow() <= 1 || !uploadId) return { found: false };
+  const numRows = sh.getLastRow() - 1;
+  const data = sh.getRange(2, 1, numRows, 12).getValues(); // uploadId..driveUrl
+  for (let i = data.length - 1; i >= 0; i--) { // search newest-first
+    if (String(data[i][0]).trim() === String(uploadId).trim()) {
+      return { found: true, url: data[i][11], codeCount: data[i][8] };
+    }
+  }
+  return { found: false };
+}
+
 function getItemCodeFiles() {
   const sh = SS.getSheetByName('ItemCodeFiles');
   if (!sh || sh.getLastRow() <= 1) return { files: [] };
-  const COLS = ['dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl'];
+  const COLS = ['uploadId','dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl'];
   const numRows = sh.getLastRow() - 1;
   const data = sh.getRange(2, 1, numRows, COLS.length).getValues();
   const files = data
-    .filter(row => row[0] && String(row[0]).trim() !== '')
+    .filter(row => row[1] && String(row[1]).trim() !== '')
     .map(row => {
       const obj = {};
       COLS.forEach((h, i) => obj[h] = row[i]);
@@ -5129,7 +5143,9 @@ async function importCodesForItem(input, uid, dealerId) {
     });
 
     const effectiveDate = dealerSelectedDate || today();
+    const uploadId = `up_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
     const payload = {
+      uploadId,
       dealerId,
       dealerName: DEALER_NAMES[dealerId] || dealerId,
       section: si,
@@ -5143,22 +5159,38 @@ async function importCodesForItem(input, uid, dealerId) {
       time: nowTime()
     };
 
-    // This must round-trip a real response (not the no-cors fire-and-forget path),
-    // since we need the Drive URL back — so we POST with CORS directly.
-    const res = await fetch(GAS_URL, {
+    // GAS web apps don't return CORS headers on POST, so a normal fetch() POST
+    // gets silently blocked by the browser ("Upload failed" with no real detail).
+    // Fire-and-forget via no-cors (which always succeeds at the network level),
+    // then poll a small GET endpoint — GETs to GAS do return readable responses —
+    // until the saved file shows up, identified by this upload's unique id.
+    await fetch(GAS_URL, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'saveItemCodesFile', data: payload })
     });
-    const json = await res.json();
-    if (json.error) throw new Error(json.error);
+
+    let driveUrl = null;
+    const maxAttempts = 14; // ~14 * 1.5s ≈ 21s, generous for a cold-starting script
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const pollUrl = GAS_URL + '?action=getCodeFileByUploadId&uploadId=' + encodeURIComponent(uploadId) + '&t=' + Date.now();
+        const pollRes = await Promise.race([fetch(pollUrl, { redirect: 'follow' }), timeoutPromise(10000)]);
+        const check = await pollRes.json();
+        if (check && check.found) { driveUrl = check.url; break; }
+      } catch (e) { /* keep polling through transient errors */ }
+    }
+
+    if (!driveUrl) throw new Error('Upload is taking longer than expected — please check the Code Uploads admin tab in a minute, or try again.');
 
     if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, count: codes.length, url: json.url };
+    window._itemImportFiles[uid] = { fileName, count: codes.length, url: driveUrl };
 
     // Auto-fill the remarks field with a summary + link, so admin sees it directly in Submissions too
     if (remEl) {
-      remEl.value = `${codes.length} codes uploaded (${fileName}) — ${json.url}`;
+      remEl.value = `${codes.length} codes uploaded (${fileName}) — ${driveUrl}`;
       remEl.classList.remove('mandatory');
     }
     // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
