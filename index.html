@@ -3565,7 +3565,16 @@ async function switchPanel(id, el) {
   document.getElementById('panelTitle').textContent = titles[id] || id;
   if (id === 'history')   { loadHistoryData(); return; }
   if (id === 'manage')    { renderClMgmt(); return; }
-  if (id === 'codefiles') { loadCodeFilesPanel(); return; }
+  if (id === 'codefiles') {
+    try { await loadCodeFilesPanel(); }
+    catch (e) {
+      console.error('[switchPanel codefiles]', e);
+      showToast('Could not load Code Uploads: ' + e.message, 'error');
+      const tbody = document.getElementById('cfTableBody');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--red)">Failed to load: ${e.message}</td></tr>`;
+    }
+    return;
+  }
   // For live panels, always pull fresh submissions from Sheets filtered to today (IST)
   try {
     const res = await gasGet('getAllHistory');
@@ -5236,16 +5245,21 @@ let _codeFilesCache = [];
 
 async function loadCodeFilesPanel() {
   const tbody = document.getElementById('cfTableBody');
+  if (!tbody) throw new Error('Code Uploads panel HTML not found on page — try a hard refresh (Ctrl+Shift+R).');
   tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr>`;
-  _codeFilesCache = await loadItemCodeFiles();
+
+  const files = await loadItemCodeFiles();
+  _codeFilesCache = Array.isArray(files) ? files : [];
 
   // populate dealer filter dropdown
   const dealerSel = document.getElementById('cfDealer');
-  const currentVal = dealerSel.value;
-  const uniqueDealers = [...new Map(_codeFilesCache.map(f => [f.dealerId, f.dealerName])).entries()];
-  dealerSel.innerHTML = '<option value="">All Dealers</option>' +
-    uniqueDealers.map(([id, name]) => `<option value="${id}">${name} (${id})</option>`).join('');
-  dealerSel.value = currentVal;
+  if (dealerSel) {
+    const currentVal = dealerSel.value;
+    const uniqueDealers = [...new Map(_codeFilesCache.map(f => [f.dealerId, f.dealerName])).entries()];
+    dealerSel.innerHTML = '<option value="">All Dealers</option>' +
+      uniqueDealers.map(([id, name]) => `<option value="${id}">${name} (${id})</option>`).join('');
+    dealerSel.value = currentVal;
+  }
 
   const badge = document.getElementById('codeFileCountBadge');
   if (badge) badge.textContent = _codeFilesCache.length;
@@ -5254,8 +5268,8 @@ async function loadCodeFilesPanel() {
 }
 
 function renderCodeFiles() {
-  const dealerFilter = document.getElementById('cfDealer').value;
-  const dateFilter    = document.getElementById('cfDate').value; // YYYY-MM-DD
+  const dealerFilter = document.getElementById('cfDealer')?.value || '';
+  const dateFilter    = document.getElementById('cfDate')?.value || ''; // YYYY-MM-DD
 
   let rows = _codeFilesCache.slice();
   if (dealerFilter) rows = rows.filter(f => f.dealerId === dealerFilter);
