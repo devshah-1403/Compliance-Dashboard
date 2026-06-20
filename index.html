@@ -1917,6 +1917,14 @@ body {
           Past Data
         </button>
 
+        <button class="nav-item" onclick="switchPanel('codefiles',this)">
+          <span class="nav-icon">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 1.5h6l4 4V14a.5.5 0 01-.5.5h-9A.5.5 0 013 14V2a.5.5 0 01.5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+          </span>
+          Code Uploads
+          <span class="nav-badge" id="codeFileCountBadge">0</span>
+        </button>
+
         <div class="nav-section-label">Compliance</div>
         <button class="nav-item" onclick="switchPanel('alerts',this)">
           <span class="nav-icon">
@@ -2195,6 +2203,55 @@ body {
             <button class="btn-sm" id="histPrevBtn" onclick="histPage(-1)">← Prev</button>
             <span id="histPageInfo" style="font-size:12px;color:var(--text2)">Page 1</span>
             <button class="btn-sm" id="histNextBtn" onclick="histPage(1)">Next →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── CODE UPLOADS PANEL ─── -->
+      <div class="admin-panel" id="panel-codefiles">
+        <div class="panel-header">
+          <h2>Code Uploads</h2>
+          <p>Every Excel file of codes uploaded by dealers against checklist items, in one place — no need to dig through remarks.</p>
+        </div>
+
+        <div class="history-controls" style="flex-wrap:wrap;gap:12px 16px;align-items:flex-end">
+          <div class="history-ctrl-group">
+            <label class="history-ctrl-label">Dealer</label>
+            <select class="filter-select" id="cfDealer">
+              <option value="">All Dealers</option>
+            </select>
+          </div>
+          <div class="history-ctrl-group">
+            <label class="history-ctrl-label">Date</label>
+            <input type="date" class="filter-select" id="cfDate" style="cursor:pointer">
+          </div>
+          <div style="display:flex;gap:8px;margin-top:18px">
+            <button class="btn-primary" onclick="renderCodeFiles()" style="padding:7px 22px;font-size:13px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:600;letter-spacing:0.2px">🔍 Filter</button>
+            <button class="btn-sm" onclick="document.getElementById('cfDealer').value='';document.getElementById('cfDate').value='';renderCodeFiles()" style="color:var(--text3)">Clear</button>
+            <button class="btn-sm" onclick="loadCodeFilesPanel()" style="color:var(--text3)">↻ Refresh</button>
+          </div>
+        </div>
+
+        <div class="table-card">
+          <div class="table-card-header">
+            <span class="table-card-title">Uploaded Files</span>
+            <span class="table-count" id="cfTableCount">0 files</span>
+          </div>
+          <div style="overflow-x:auto">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Dealer</th>
+                  <th>Section</th>
+                  <th>Item</th>
+                  <th>File</th>
+                  <th>Codes</th>
+                  <th>Uploaded</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="cfTableBody"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -2653,37 +2710,38 @@ async function connectSheets() {
   }
 }
 
+function timeoutPromise(ms) {
+  return new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms));
+}
+
 async function gasGet(action, url) {
   const base = url || GAS_URL;
   const u = base + '?action=' + action + '&t=' + Date.now();
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 12000); // 12s timeout
-  try {
-    const res = await fetch(u, { redirect: 'follow', signal: ctrl.signal });
-    clearTimeout(timer);
-    return res.json();
-  } catch(e) {
-    clearTimeout(timer);
-    throw e;
-  }
+  const res = await Promise.race([
+    fetch(u, { redirect: 'follow' }),
+    timeoutPromise(12000)
+  ]);
+  return res.json();
 }
 
 // getAll is the heaviest call (full dealer/checklist/admin payload) and Apps Script
 // cold starts can comfortably exceed a 12s timeout. Use a longer timeout and one
 // automatic retry before giving up — avoids dumping the user on the setup screen
 // just because the script hadn't "warmed up" yet.
+// Uses Promise.race instead of AbortController/signal, since some sandboxed/preview
+// environments proxy fetch() through postMessage and AbortSignal objects aren't
+// structured-cloneable, which throws a DataCloneError before the request even starts.
 async function gasGetWithRetry(action, { timeoutMs = 25000, retries = 1 } = {}) {
   let lastErr;
   for (let attempt = 0; attempt <= retries; attempt++) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const u = GAS_URL + '?action=' + action + '&t=' + Date.now();
-      const res = await fetch(u, { redirect: 'follow', signal: ctrl.signal });
-      clearTimeout(timer);
+      const res = await Promise.race([
+        fetch(u, { redirect: 'follow' }),
+        timeoutPromise(timeoutMs)
+      ]);
       return await res.json();
     } catch (e) {
-      clearTimeout(timer);
       lastErr = e;
       // brief pause before retrying, gives a cold-starting script a moment
       if (attempt < retries) await new Promise(r => setTimeout(r, 800));
@@ -2698,12 +2756,9 @@ async function gasPost(body) {
   const dataStr    = body.data !== undefined ? JSON.stringify(body.data) : '';
   const encoded    = encodeURIComponent(dataStr);
   const url        = GAS_URL + '?action=' + action + '&data=' + encoded + '&t=' + Date.now();
-  const ctrl       = new AbortController();
-  const timer      = setTimeout(() => ctrl.abort(), 15000);
 
   // If URL would be too long (>7000 chars), fall back to no-cors POST
   if (url.length > 7000) {
-    clearTimeout(timer);
     fetch(GAS_URL, {
       method: 'POST', mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
@@ -2712,18 +2767,15 @@ async function gasPost(body) {
     return { ok: true };
   }
 
-  try {
-    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
-    clearTimeout(timer);
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
-    if (json && json.error) throw new Error(json.error);
-    return { ok: true };
-  } catch(e) {
-    clearTimeout(timer);
-    throw e;
-  }
+  const res  = await Promise.race([
+    fetch(url, { redirect: 'follow' }),
+    timeoutPromise(15000)
+  ]);
+  const text = await res.text();
+  let json;
+  try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
+  if (json && json.error) throw new Error(json.error);
+  return { ok: true };
 }
 
 /* ── DATA ── */
@@ -3493,11 +3545,13 @@ async function switchPanel(id, el) {
     dealers:     'Dealer Summary',
     alerts:      'Risk Alerts',
     manage:      'Manage Dealers',
-    history:     'Past Data'
+    history:     'Past Data',
+    codefiles:   'Code Uploads'
   };
   document.getElementById('panelTitle').textContent = titles[id] || id;
-  if (id === 'history') { loadHistoryData(); return; }
-  if (id === 'manage')  { renderClMgmt(); return; }
+  if (id === 'history')   { loadHistoryData(); return; }
+  if (id === 'manage')    { renderClMgmt(); return; }
+  if (id === 'codefiles') { loadCodeFilesPanel(); return; }
   // For live panels, always pull fresh submissions from Sheets filtered to today (IST)
   try {
     const res = await gasGet('getAllHistory');
@@ -5117,6 +5171,77 @@ async function loadItemCodeFiles() {
     console.error('[loadItemCodeFiles]', e);
     return [];
   }
+}
+
+let _codeFilesCache = [];
+
+async function loadCodeFilesPanel() {
+  const tbody = document.getElementById('cfTableBody');
+  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr>`;
+  _codeFilesCache = await loadItemCodeFiles();
+
+  // populate dealer filter dropdown
+  const dealerSel = document.getElementById('cfDealer');
+  const currentVal = dealerSel.value;
+  const uniqueDealers = [...new Map(_codeFilesCache.map(f => [f.dealerId, f.dealerName])).entries()];
+  dealerSel.innerHTML = '<option value="">All Dealers</option>' +
+    uniqueDealers.map(([id, name]) => `<option value="${id}">${name} (${id})</option>`).join('');
+  dealerSel.value = currentVal;
+
+  const badge = document.getElementById('codeFileCountBadge');
+  if (badge) badge.textContent = _codeFilesCache.length;
+
+  renderCodeFiles();
+}
+
+function renderCodeFiles() {
+  const dealerFilter = document.getElementById('cfDealer').value;
+  const dateFilter    = document.getElementById('cfDate').value; // YYYY-MM-DD
+
+  let rows = _codeFilesCache.slice();
+  if (dealerFilter) rows = rows.filter(f => f.dealerId === dealerFilter);
+  if (dateFilter) {
+    // file.date is stored as "dd MMM yyyy"; convert filter to same format for comparison
+    const d = new Date(dateFilter + 'T00:00:00');
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dmy = `${String(d.getDate()).padStart(2,'0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    rows = rows.filter(f => f.date === dmy);
+  }
+  // newest first
+  rows.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+
+  const cnt = document.getElementById('cfTableCount');
+  if (cnt) cnt.textContent = `${rows.length} file${rows.length !== 1 ? 's' : ''}`;
+
+  const tbody = document.getElementById('cfTableBody');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7">
+      <div class="no-data">
+        <div class="no-data-icon">📄</div>
+        <strong>No code files found</strong>
+        <p>Files dealers upload against checklist items will appear here.</p>
+      </div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(f => `
+    <tr>
+      <td>
+        <span class="dealer-pill ${DEALER_CLASSES[f.dealerId] || ''}">${f.dealerId}</span>
+        <div class="dealer-name">${f.dealerName}</div>
+      </td>
+      <td><span class="section-chip">${f.sectionName}</span></td>
+      <td style="font-size:13px">${f.item}</td>
+      <td style="font-size:12px;color:var(--text2)">${f.fileName}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${f.codeCount}</td>
+      <td class="time-cell">${f.date}<br>${f.time}</td>
+      <td>
+        <a href="${f.driveUrl}" target="_blank" rel="noopener"
+          style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--accent-dim);color:var(--accent2);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">
+          📄 Open
+        </a>
+      </td>
+    </tr>`).join('');
 }
 
 
