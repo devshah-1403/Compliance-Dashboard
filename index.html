@@ -5172,6 +5172,7 @@ async function importCodesForItem(input, uid, dealerId) {
     });
 
     let driveUrl = null;
+    let lastPollError = null;
     const maxAttempts = 14; // ~14 * 1.5s ≈ 21s, generous for a cold-starting script
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(r => setTimeout(r, 1500));
@@ -5179,11 +5180,19 @@ async function importCodesForItem(input, uid, dealerId) {
         const pollUrl = GAS_URL + '?action=getCodeFileByUploadId&uploadId=' + encodeURIComponent(uploadId) + '&t=' + Date.now();
         const pollRes = await Promise.race([fetch(pollUrl, { redirect: 'follow' }), timeoutPromise(10000)]);
         const check = await pollRes.json();
+        console.log('[importCodesForItem poll]', attempt, check);
+        if (check && check.error) { lastPollError = check.error; continue; }
         if (check && check.found) { driveUrl = check.url; break; }
-      } catch (e) { /* keep polling through transient errors */ }
+      } catch (e) {
+        console.warn('[importCodesForItem poll error]', attempt, e);
+        lastPollError = e.message;
+      }
     }
 
-    if (!driveUrl) throw new Error('Upload is taking longer than expected — please check the Code Uploads admin tab in a minute, or try again.');
+    if (!driveUrl) {
+      if (lastPollError) throw new Error('Backend error: ' + lastPollError);
+      throw new Error('Upload is taking longer than expected — check the Code Uploads admin tab in a minute.');
+    }
 
     if (!window._itemImportFiles) window._itemImportFiles = {};
     window._itemImportFiles[uid] = { fileName, count: codes.length, url: driveUrl };
@@ -5206,7 +5215,7 @@ async function importCodesForItem(input, uid, dealerId) {
   } catch (err) {
     console.error('[importCodesForItem]', err);
     if (remEl) remEl.value = origRemPlaceholder;
-    showToast('Upload failed — check connection and try again.', 'error');
+    showToast(err.message || 'Upload failed — check connection and try again.', 'error');
   } finally {
     input.value = '';
   }
