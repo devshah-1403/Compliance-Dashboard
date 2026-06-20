@@ -5116,6 +5116,18 @@ async function importCodesForItem(input, uid, dealerId) {
   if (!file) return;
   const fileName = file.name;
 
+  // Guard against the same item firing this twice concurrently (duplicate change
+  // events, or a re-render mid-upload re-triggering the input) — without this,
+  // two overlapping uploads can race and the earlier one's "Uploading…" placeholder
+  // can overwrite the later one's finished result in the remarks box.
+  if (!window._activeImports) window._activeImports = {};
+  if (window._activeImports[uid]) {
+    console.warn('[importCodesForItem] ignored duplicate trigger for', uid);
+    input.value = '';
+    return;
+  }
+  window._activeImports[uid] = true;
+
   // uid format: s{si}_i{idx}_{dealerId}
   const m = uid.match(/^s(\d+)_i(\d+)_/);
   const si  = m ? Number(m[1]) : null;
@@ -5227,6 +5239,7 @@ async function importCodesForItem(input, uid, dealerId) {
     showToast(err.message || 'Upload failed — check connection and try again.', 'error');
   } finally {
     input.value = '';
+    delete window._activeImports[uid];
   }
 }
 
