@@ -2466,13 +2466,14 @@ function getSheetData(name) {
 }
 
 function saveDealers(dealers) {
-  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
+  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms','itemImportPerms']);
   sh.clearContents();
-  sh.appendRow(['id','name','pass','sections','itemPerms']);
+  sh.appendRow(['id','name','pass','sections','itemPerms','itemImportPerms']);
   dealers.forEach(d => sh.appendRow([
     d.id, d.name, d.pass,
     JSON.stringify(d.sections),
-    JSON.stringify(d.itemPerms || {})
+    JSON.stringify(d.itemPerms || {}),
+    JSON.stringify(d.itemImportPerms || {})
   ]));
   return { ok: true };
 }
@@ -2704,7 +2705,7 @@ async function saveDealers() {
     pass: d.pass,
     sections: d.sections ?? [0,1,2],
     itemPerms: d.itemPerms ?? {},
-    excelImportPerms: d.excelImportPerms ?? {}
+    itemImportPerms: d.itemImportPerms ?? {}
   }));
   await gasPost({ action: 'saveDealers', data: arr });
 }
@@ -2751,12 +2752,12 @@ async function initApp() {
           }
           return d.itemPerms;
         })(),
-        excelImportPerms: (() => {
-          if (!d.excelImportPerms) return {};
-          if (typeof d.excelImportPerms === 'string') {
-            try { return JSON.parse(d.excelImportPerms); } catch(e) { return {}; }
+        itemImportPerms: (() => {
+          if (!d.itemImportPerms) return {};
+          if (typeof d.itemImportPerms === 'string') {
+            try { return JSON.parse(d.itemImportPerms); } catch(e) { return {}; }
           }
-          return d.excelImportPerms;
+          return d.itemImportPerms;
         })()
       };
     });
@@ -3139,12 +3140,12 @@ function renderChecklists() {
     container.innerHTML = '';
     const perms = getItemPerms(dealer, si);
     let visibleCount = 0;
-    const xlPerms = getExcelImportPerms(dealer, si);
     section.items.forEach((item, idx) => {
       if (!perms[idx]) return; // item not assigned to this dealer
       visibleCount++;
       const uid = `s${si}_i${idx}_${currentDealer}`;
-      const canAttach = !!xlPerms[idx];
+      const importPerms = getItemImportPerms(dealer, si);
+      const canImport = !!importPerms[idx];
       const row = document.createElement('div');
       row.className = 'cl-row';
       row.id = `row-${uid}`;
@@ -3158,20 +3159,16 @@ function renderChecklists() {
           <label for="${uid}_p" class="status-label"><span class="dot"></span>Partial</label>
           <input type="radio" name="${uid}" value="notdone" id="${uid}_n" class="status-radio" onchange="onStatusChange('${uid}',${si})">
           <label for="${uid}_n" class="status-label"><span class="dot"></span>Not Done</label>
+          ${canImport ? `
+          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:20px;border:1px solid var(--border2);background:var(--glass);margin-left:2px" title="Import a code list for this task">
+            <input type="file" accept=".xlsx" style="display:none" onchange="importCodesForItem(this,'${uid}','${currentDealer}')">
+            <span style="font-size:11px;color:var(--accent2)">📥</span>
+          </label>` : ''}
         </div>
         <div class="col-remarks remarks-area">
           <textarea class="remarks-input" id="rem-${uid}" placeholder="Add remark…" rows="1"
             oninput="onRemarks('${uid}',${si})"></textarea>
           <span class="remarks-hint" id="hint-${uid}"></span>
-          ${canAttach ? `
-          <div class="attach-row" id="attach-row-${uid}" style="margin-top:6px;display:flex;align-items:center;gap:8px">
-            <label style="cursor:pointer">
-              <input type="file" id="attachfile-${uid}" accept=".xlsx,.xls,.csv" style="display:none" onchange="uploadItemAttachment(this,'${uid}',${si},${idx})">
-              <span style="font-size:11px;padding:4px 10px;background:var(--ink4);border:1px solid var(--border2);border-radius:6px;color:var(--text2)"
-                onclick="document.getElementById('attachfile-${uid}').click()">📎 Attach File</span>
-            </label>
-            <span id="attach-status-${uid}" style="font-size:11px;color:var(--text3)"></span>
-          </div>` : ''}
         </div>`;
       container.appendChild(row);
     });
@@ -3211,7 +3208,6 @@ function renderChecklists() {
       });
     }
     updateProgress(si);
-
   });
   // After restoring all sections, update overall pct
   updateOverallPct();
@@ -3345,15 +3341,9 @@ async function submitSection(si) {
     const selEl   = document.querySelector(`input[name="${uid}"]:checked`);
     const remEl   = document.getElementById(`rem-${uid}`);
     const status  = selEl ? selEl.value : '';
-    let   remarks = remEl ? remEl.value.trim() : '';
+    const remarks = remEl ? remEl.value.trim() : '';
     if (status === 'partial' || status === 'notdone') {
       if (!remarks) { if (remEl) remEl.classList.add('mandatory'); valid = false; }
-    }
-    // If a file was attached to this item, append its link to remarks so it
-    // travels with the submission and is visible to admin (Sheets cell holds text+link).
-    const attachment = itemAttachments[uid];
-    if (attachment) {
-      remarks = remarks ? `${remarks}\n📎 ${attachment.fileName}: ${attachment.fileUrl}` : `📎 ${attachment.fileName}: ${attachment.fileUrl}`;
     }
     data.push({ item, status, remarks });
     // Only include rows where the dealer actually selected a status
@@ -3736,7 +3726,6 @@ function getFilters() {
 
 function formatRemarksWithLinks(remarks) {
   if (!remarks) return '<span style="color:var(--text4)">—</span>';
-  // Escape HTML first, then auto-linkify any http(s) URL (e.g. attached file links)
   const esc = String(remarks)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/\n/g, '<br>');
@@ -4134,15 +4123,16 @@ function getItemPerms(dealer, si) {
   return dealer.itemPerms[si];
 }
 
-// Separate permission set: which items can be bulk-marked "Not Done" via Excel import.
-// Defaults to FALSE (admin must explicitly enable per item) — distinct from item access.
-function getExcelImportPerms(dealer, si) {
-  if (!dealer.excelImportPerms) dealer.excelImportPerms = {};
-  if (!dealer.excelImportPerms[si]) {
-    dealer.excelImportPerms[si] = CHECKLISTS[si].items.map(() => false);
+
+
+function getItemImportPerms(dealer, si) {
+  // dealer.itemImportPerms: { [si]: [false,true,false,...] } — per-item "allow Excel code import"
+  if (!dealer.itemImportPerms) dealer.itemImportPerms = {};
+  if (!dealer.itemImportPerms[si]) {
+    dealer.itemImportPerms[si] = CHECKLISTS[si].items.map(() => false);
   }
-  while (dealer.excelImportPerms[si].length < CHECKLISTS[si].items.length) dealer.excelImportPerms[si].push(false);
-  return dealer.excelImportPerms[si];
+  while (dealer.itemImportPerms[si].length < CHECKLISTS[si].items.length) dealer.itemImportPerms[si].push(false);
+  return dealer.itemImportPerms[si];
 }
 
 function openItemPermsModal(dealerId, si) {
@@ -4150,7 +4140,7 @@ function openItemPermsModal(dealerId, si) {
   const sectionName = CHECKLISTS[si].name;
   const items = CHECKLISTS[si].items;
   const perms = getItemPerms(dealer, si);
-  const xlPerms = getExcelImportPerms(dealer, si);
+  const importPerms = getItemImportPerms(dealer, si);
 
   // Remove existing modal
   const old = document.getElementById('itemPermsModal');
@@ -4164,7 +4154,7 @@ function openItemPermsModal(dealerId, si) {
   const allChecked = perms.every(Boolean);
 
   modal.innerHTML = `
-    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:660px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
         <div>
           <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">${sectionName}</div>
@@ -4183,36 +4173,24 @@ function openItemPermsModal(dealerId, si) {
         <span style="font-size:11px;color:var(--text3);margin-left:auto" id="itemCountLabel_${dealerId}_${si}">${perms.filter(Boolean).length} of ${items.length} enabled</span>
       </div>
 
-      <div style="padding:0.5rem 1.5rem;border-bottom:1px solid var(--border);display:flex;gap:10px;flex-shrink:0;font-size:10.5px;color:var(--text4)">
-        <span style="flex:1"></span>
-        <span style="width:54px;text-align:center">Access</span>
-        <span style="width:64px;text-align:center">Attach File</span>
-      </div>
-
       <div style="overflow-y:auto;padding:0.5rem 1rem">
         ${items.map((item, idx) => `
           <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border)"
             onmouseover="this.style.background='var(--glass)'" onmouseout="this.style.background='transparent'">
-            <span id="itemlabel_${dealerId}_${si}_${idx}" style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
+            <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
+              onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
+              style="width:14px;height:14px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+            <span style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
               <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text4);margin-right:6px">${String(idx+1).padStart(2,'0')}</span>
               ${item}
             </span>
-            <span style="width:54px;text-align:center;flex-shrink:0">
-              <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
-                onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
-                style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer">
-            </span>
-            <span style="width:64px;text-align:center;flex-shrink:0">
-              <input type="checkbox" id="xlimportperm_${dealerId}_${si}_${idx}" ${xlPerms[idx] ? 'checked' : ''}
-                onchange="toggleExcelImportPerm('${dealerId}',${si},${idx},this.checked)"
-                title="Allow dealer to attach a supporting file (e.g. code list) for this item"
-                style="width:14px;height:14px;accent-color:#FFB020;cursor:pointer">
-            </span>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:2px 8px;border-radius:12px;background:${importPerms[idx] ? 'var(--accent-dim)' : 'var(--glass)'};border:1px solid ${importPerms[idx] ? 'rgba(59,123,255,0.3)' : 'var(--border2)'}" title="Allow this dealer to import a code list (Excel) for this task instead of typing remarks">
+              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importPerms[idx] ? 'checked' : ''}
+                onchange="toggleItemImportPerm('${dealerId}',${si},${idx},this.checked)"
+                style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer">
+              <span style="font-size:10px;font-weight:600;color:${importPerms[idx] ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Import</span>
+            </label>
           </div>`).join('')}
-      </div>
-
-      <div style="padding:0.75rem 1.5rem;font-size:10.5px;color:var(--text4);border-top:1px solid var(--border)">
-        "Attach File" lets the dealer upload a supporting Excel/file for this item (e.g. a list of codes) — admin can open it later from the submission record.
       </div>
 
       <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
@@ -4223,68 +4201,820 @@ function openItemPermsModal(dealerId, si) {
   document.body.appendChild(modal);
 }
 
-function toggleExcelImportPerm(dealerId, si, idx, checked) {
-  const dealer = dealerRegistry[dealerId];
-  const xlPerms = getExcelImportPerms(dealer, si);
-  xlPerms[idx] = checked;
+function closeItemPermsModal() {
+  const m = document.getElementById('itemPermsModal');
+  if (m) m.remove();
 }
 
-// ═══════════════════════════════════════════════════════════
-//  ATTACH FILE — dealer uploads a supporting file (e.g. 1000 codes) for a
-//  checklist item. File is sent to GAS as base64, GAS saves it to a Drive
-//  folder and returns a shareable link, which is stored with the submission
-//  so admin can open the actual file later.
-// ═══════════════════════════════════════════════════════════
+function toggleItemPerm(dealerId, si, idx, checked) {
+  const dealer = dealerRegistry[dealerId];
+  const perms = getItemPerms(dealer, si);
+  perms[idx] = checked;
+  // Update label color inline
+  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('div')?.querySelector('span');
+  if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
+  // Update count label
+  const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
+  if (countEl) countEl.textContent = `${perms.filter(Boolean).length} of ${CHECKLISTS[si].items.length} enabled`;
+  // Update select-all checkbox state
+  const allBox = document.getElementById(`selectAllItems_${dealerId}_${si}`);
+  if (allBox) allBox.checked = perms.every(Boolean);
+}
 
-const itemAttachments = {}; // uid -> { fileName, fileUrl, uploadedAt }
+function toggleItemImportPerm(dealerId, si, idx, checked) {
+  const dealer = dealerRegistry[dealerId];
+  const importPerms = getItemImportPerms(dealer, si);
+  importPerms[idx] = checked;
+  const wrap = document.getElementById(`itemimport_${dealerId}_${si}_${idx}`)?.closest('label');
+  if (wrap) {
+    wrap.style.background = checked ? 'var(--accent-dim)' : 'var(--glass)';
+    wrap.style.borderColor = checked ? 'rgba(59,123,255,0.3)' : 'var(--border2)';
+    const txt = wrap.querySelector('span');
+    if (txt) txt.style.color = checked ? 'var(--accent2)' : 'var(--text3)';
+  }
+}
 
-async function uploadItemAttachment(input, uid, si, idx) {
-  const file = input.files[0];
-  if (!file) return;
+function toggleAllItems(dealerId, si, checked) {
+  const dealer = dealerRegistry[dealerId];
+  const perms = getItemPerms(dealer, si);
+  perms.forEach((_, i) => { perms[i] = checked; });
+  // Update all checkboxes
+  CHECKLISTS[si].items.forEach((_, idx) => {
+    const cb = document.getElementById(`itemperm_${dealerId}_${si}_${idx}`);
+    if (cb) { cb.checked = checked; }
+    const lbl = cb?.closest('div')?.querySelector('span');
+    if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
+  });
+  const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
+  if (countEl) countEl.textContent = `${perms.filter(Boolean).length} of ${CHECKLISTS[si].items.length} enabled`;
+}
 
-  const statusEl = document.getElementById(`attach-status-${uid}`);
-  if (statusEl) { statusEl.textContent = 'Uploading…'; statusEl.style.color = 'var(--accent2)'; }
+async function saveItemPerms(dealerId, si) {
+  const dealer = dealerRegistry[dealerId];
+  if (!dealer.itemPerms) dealer.itemPerms = {};
+  const btn = document.querySelector('#itemPermsModal button[onclick*="saveItemPerms"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; btn.style.opacity = '0.7'; }
+  try {
+    await saveDealers();
+    closeItemPermsModal();
+    renderDealerManagement();
+    showToast(`✓ ${dealer.name}'s tasks saved to Google Sheets`, 'success');
+  } catch(e) {
+    if (btn) { btn.textContent = 'Save Changes'; btn.disabled = false; btn.style.opacity = '1'; }
+    showToast('Save failed — check GAS connection.', 'error');
+  }
+}
 
-  if (file.size > 8 * 1024 * 1024) { // 8MB safety cap (base64 inflates ~33%, GAS has limits)
-    if (statusEl) { statusEl.textContent = 'File too large (max 8MB)'; statusEl.style.color = '#EF4444'; }
-    input.value = '';
+async function updateDealerPassword(id) {
+  const input = document.getElementById(`pass_${id}`);
+  const newPass = input ? input.value.trim() : '';
+  if (!newPass) { alert('Password cannot be empty.'); return; }
+  dealerRegistry[id].pass = newPass;
+  await saveDealers();
+  input.value = '';
+  alert(`✓ Password updated for ${dealerRegistry[id].name}.`);
+}
+
+function renderDealerManagement() {
+  const tbody = document.getElementById('dealerMgmtBody');
+  const cnt   = document.getElementById('dealerMgmtCount');
+  const dealers = Object.entries(dealerRegistry);
+  if (cnt) cnt.textContent = `${dealers.length} dealer${dealers.length !== 1 ? 's' : ''}`;
+  if (!dealers.length) {
+    tbody.innerHTML = `<tr><td colspan="5"><div class="no-data"><div class="no-data-icon">👤</div><strong>No dealers registered</strong><p>Add your first dealer using the form above.</p></div></td></tr>`;
+    return;
+  }
+  const sectionNames = ['Dealer Compliance', 'Back Office Ops', 'KYC Department'];
+  tbody.innerHTML = dealers.map(([id, d]) => {
+    const sections = d.sections ?? [0,1,2];
+    const sectionBtns = sectionNames.map((sn, si) => {
+      const active = sections.includes(si);
+      const perms = getItemPerms(d, si);
+      const enabledCount = perms.filter(Boolean).length;
+      const totalCount   = CHECKLISTS[si].items.length;
+      const allEnabled   = enabledCount === totalCount;
+
+      return `
+        <div style="display:inline-flex;align-items:center;gap:0;margin:2px;border-radius:20px;overflow:hidden;border:1px solid ${active ? 'rgba(59,123,255,0.4)' : 'var(--border2)'}">
+          <button onclick="toggleSection('${id}',${si})" style="
+            padding:4px 10px;font-size:11px;font-weight:500;cursor:pointer;
+            font-family:inherit;border:none;border-right:1px solid ${active ? 'rgba(59,123,255,0.25)' : 'var(--border)'};
+            background:${active ? 'var(--accent-dim)' : 'var(--glass)'};
+            color:${active ? 'var(--accent2)' : 'var(--text3)'};transition:all .12s;"
+          >${active ? '✓' : '+'} ${sn}</button>
+          ${active ? `
+          <button onclick="openItemPermsModal('${id}',${si})" title="Configure which items this dealer sees" style="
+            padding:4px 8px;font-size:10px;font-weight:600;cursor:pointer;
+            font-family:'JetBrains Mono',monospace;border:none;
+            background:${allEnabled ? 'var(--accent-dim)' : 'rgba(245,158,11,0.12)'};
+            color:${allEnabled ? 'var(--accent2)' : 'var(--amber)'};transition:all .12s;white-space:nowrap"
+          >${enabledCount}/${totalCount} ✎</button>` : ''}
+        </div>`;
+    }).join('');
+    return `<tr>
+      <td><span class="dealer-pill ${DEALER_CLASSES[id] || 'dp-d1'}">${id}</span></td>
+      <td style="font-weight:500">${d.name}</td>
+      <td>${sectionBtns}</td>
+      <td>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="password" id="pass_${id}" placeholder="New password…" class="search-input" style="min-width:130px;font-size:12px">
+          <button class="btn-sm" onclick="updateDealerPassword('${id}')" style="white-space:nowrap;color:var(--accent2)">Set</button>
+        </div>
+      </td>
+      <td>
+        <button class="btn-sm" onclick="removeDealer('${id}')" style="color:var(--red);border-color:rgba(239,68,68,0.3)">Remove</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+/* EXPORT CSV */
+function exportCSV() {
+  const rows = buildRows();
+  if (!rows.length) { alert('No data to export.'); return; }
+  const headers = ['Dealer ID','Dealer Name','Section','Item #','Checklist Item','Status','Remarks','Date','Time'];
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => [
+      r.dealer, r.dealerName, r.sectionName, r.itemIdx,
+      `"${r.item.replace(/"/g,'""')}"`,
+      r.status || '',
+      `"${(r.remarks||'').replace(/"/g,'""')}"`,
+      r.date, r.time
+    ].join(','))
+  ].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `nbs_compliance_${today().replace(/ /g,'_')}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ══════════════════════════════════════════════════════
+   PAST DATA — HISTORY PANEL
+══════════════════════════════════════════════════════ */
+
+let histAllRows   = [];   // all rows fetched from Sheets (ever)
+let histFiltered  = [];   // after filter applied
+let histCurrentPage = 1;
+const HIST_PAGE_SIZE = 50;
+
+/* Called once on init — pull full Submissions sheet then seed year picker */
+// Normalize any date format from Sheets into "DD Mon YYYY" e.g. "04 Jun 2026"
+function normalizeDate(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  if (!s || s === 'date') return '';
+  // Already correct format "04 Jun 2026"
+  if (/^\d{2} [A-Za-z]{3} \d{4}$/.test(s)) return s;
+  // ISO / JS Date string e.g. "2026-06-03T18:30:00.000Z" or "2026-06-04"
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      // Use IST offset (+5:30) to avoid date shifting
+      const ist = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+      const day   = String(ist.getUTCDate()).padStart(2, '0');
+      const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][ist.getUTCMonth()];
+      const year  = ist.getUTCFullYear();
+      return `${day} ${month} ${year}`;
+    }
+  } catch(e) {}
+  return s;
+}
+
+function normalizeTime(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  // If it looks like an ISO date (Sheets time column), extract HH:MM
+  if (s.includes('T') || s.includes('1899')) {
+    try {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const ist = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+        return `${String(ist.getUTCHours()).padStart(2,'0')}:${String(ist.getUTCMinutes()).padStart(2,'0')}`;
+      }
+    } catch(e) {}
+  }
+  return s;
+}
+
+async function loadHistoryData() {
+  // Show loading state immediately
+  const tbody = document.getElementById('histTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text3)">⏳ Loading history from Google Sheets…</td></tr>';
+  const searchBtn = document.querySelector('#panel-history .btn-primary');
+  if (searchBtn) { searchBtn.disabled = true; searchBtn.textContent = '⏳ Loading…'; }
+
+  try {
+    const res = await gasGet('getAllHistory');
+    const subs = res.subs || [];
+
+    histAllRows = subs.map(row => ({
+      date:       normalizeDate(row.date),
+      dealer:     String(row.dealer || '').trim(),
+      dealerName: String(row.dealerName || '').trim(),
+      section:    String(row.section || '').trim(),
+      sectionName:String(row.sectionName || '').trim(),
+      itemIdx:    row.itemIdx,
+      item:       String(row.item   || '').trim(),
+      status:     String(row.status || '').trim(),
+      remarks:    String(row.remarks|| '').trim(),
+      time:       normalizeTime(row.time),
+    }));
+
+    initHistoryFilters(); // populates dropdowns and calls renderHistory()
+  } catch(e) {
+    console.warn('loadHistoryData failed:', e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--red)">❌ Failed to load history. Check GAS URL in Settings.</td></tr>';
+  } finally {
+    if (searchBtn) { searchBtn.disabled = false; searchBtn.textContent = '🔍 Search'; }
+  }
+}
+
+function initHistoryFilters() {
+  // Year picker — current year back 5
+  const yearSel = document.getElementById('histYear');
+  if (!yearSel) return;
+  const curYear = new Date().getFullYear();
+  yearSel.innerHTML = '<option value="">All Years</option>';
+  for (let y = curYear; y >= curYear - 4; y--) {
+    yearSel.innerHTML += `<option value="${y}">${y}</option>`;
+  }
+
+  // Dealer picker from registry
+  const dealerSel = document.getElementById('histDealer');
+  if (dealerSel) {
+    dealerSel.innerHTML = '<option value="">All Dealers</option>';
+    Object.entries(dealerRegistry).forEach(([id, d]) => {
+      dealerSel.innerHTML += `<option value="${id}">${d.name} (${id})</option>`;
+    });
+  }
+
+  renderHistory();
+}
+
+function clearHistoryFilters() {
+  ['histDate','histYear','histMonth','histDealer','histSection','histStatus'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  histCurrentPage = 1;
+  renderHistory();
+}
+
+function histPage(delta) {
+  const totalPages = Math.ceil(histFiltered.length / HIST_PAGE_SIZE);
+  histCurrentPage = Math.max(1, Math.min(totalPages || 1, histCurrentPage + delta));
+  renderHistoryTable();
+}
+
+function renderHistory() {
+  // If data hasn't loaded yet, trigger a fresh load (async will call renderHistory when done)
+  if (histAllRows.length === 0) {
+    loadHistoryData();
+    return;
+  }
+  histCurrentPage = 1;
+  const dateVal = document.getElementById('histDate')   ?.value || ''; // YYYY-MM-DD
+  const year    = document.getElementById('histYear')   ?.value || '';
+  const month   = document.getElementById('histMonth')  ?.value || '';
+  const dealer  = document.getElementById('histDealer') ?.value || '';
+  const section = document.getElementById('histSection')?.value || '';
+  const status  = document.getElementById('histStatus') ?.value || '';
+
+  // Convert YYYY-MM-DD date picker value to "DD Mon YYYY" format for matching
+  let specificDate = '';
+  if (dateVal) {
+    const d = new Date(dateVal + 'T00:00:00');
+    specificDate = d.toLocaleDateString('en-IN', {day:'2-digit', month:'short', year:'numeric'});
+  }
+
+  histFiltered = histAllRows.filter(r => {
+    // Specific date overrides year/month filters
+    if (specificDate) return r.date === specificDate;
+    // date format: "DD Mon YYYY" e.g. "02 Jun 2026"
+    if (year && !r.date.includes(year))  return false;
+    if (month) {
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const mName = monthNames[parseInt(month,10)-1];
+      if (!r.date.includes(mName)) return false;
+    }
+    if (dealer  && r.dealer  !== dealer)            return false;
+    if (section && r.section !== section)           return false;
+    if (status  && r.status  !== status)            return false;
+    return true;
+  });
+
+  // Sort by date desc, then time desc
+  histFiltered.sort((a,b) => {
+    const da = parseDMY(a.date), db = parseDMY(b.date);
+    if (db - da !== 0) return db - da;
+    return (b.time || '').localeCompare(a.time || '');
+  });
+
+  renderHistoryKPIs();
+  renderHistoryTrend();
+  renderHistoryTable();
+
+  // Update range label
+  const rangeEl = document.getElementById('histTrendRange');
+  if (rangeEl) {
+    const label = [
+      year || 'All Years',
+      month ? ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(month,10)] : '',
+      dealer ? (dealerRegistry[dealer]?.name || dealer) : '',
+    ].filter(Boolean).join(' · ');
+    rangeEl.textContent = label || 'All Records';
+  }
+}
+
+function parseDMY(str) {
+  // "02 Jun 2026" → Date
+  if (!str) return new Date(0);
+  const parts = str.trim().split(' ');
+  if (parts.length === 3) {
+    return new Date(`${parts[1]} ${parts[0]} ${parts[2]}`);
+  }
+  return new Date(str);
+}
+
+function renderHistoryKPIs() {
+  const strip = document.getElementById('histKpiStrip');
+  if (!strip) return;
+
+  const rows = histFiltered;
+  const total = rows.length;
+  const completed = rows.filter(r => r.status === 'completed').length;
+  const partial   = rows.filter(r => r.status === 'partial').length;
+  const notdone   = rows.filter(r => r.status === 'notdone').length;
+  const compRate  = total ? Math.round(completed / total * 100) : 0;
+
+  // Unique submission days
+  const days = new Set(rows.map(r => r.date)).size;
+
+  // Unique dealers who submitted in filtered range
+  const activeDealers = new Set(rows.map(r => r.dealer)).size;
+
+  strip.innerHTML = [
+    { label: 'Total Records',    value: total.toLocaleString(),       sub: `across ${days} day${days!==1?'s':''}`,  color: 'var(--accent2)' },
+    { label: 'Completion Rate',  value: compRate + '%',               sub: `${completed} completed items`,          color: compRate >= 80 ? 'var(--green)' : compRate >= 50 ? 'var(--amber)' : 'var(--red)' },
+    { label: 'Partial Done',     value: partial.toLocaleString(),     sub: `${total ? Math.round(partial/total*100) : 0}% of records`, color: 'var(--amber)' },
+    { label: 'Not Done',         value: notdone.toLocaleString(),     sub: `${total ? Math.round(notdone/total*100) : 0}% of records`, color: 'var(--red)' },
+    { label: 'Active Dealers',   value: activeDealers,                sub: `out of ${Object.keys(dealerRegistry).length} registered`, color: 'var(--violet)' },
+  ].map(k => `
+    <div class="history-kpi">
+      <div class="history-kpi-label">${k.label}</div>
+      <div class="history-kpi-value" style="color:${k.color}">${k.value}</div>
+      <div class="history-kpi-sub">${k.sub}</div>
+    </div>
+  `).join('');
+}
+
+function renderHistoryTrend() {
+  const container = document.getElementById('histDealerTrend');
+  if (!container) return;
+
+  const rows = histFiltered;
+  if (!rows.length) {
+    container.innerHTML = '<div class="hist-no-data">No data for selected filters.</div>';
     return;
   }
 
+  // Per-dealer stats
+  const dealerStats = {};
+  rows.forEach(r => {
+    if (!dealerStats[r.dealer]) dealerStats[r.dealer] = { name: r.dealerName || r.dealer, total: 0, completed: 0, partial: 0, notdone: 0 };
+    const ds = dealerStats[r.dealer];
+    ds.total++;
+    if (r.status === 'completed') ds.completed++;
+    else if (r.status === 'partial') ds.partial++;
+    else if (r.status === 'notdone') ds.notdone++;
+  });
+
+  const DEALER_COLORS = ['var(--d1)','var(--d2)','var(--d3)','var(--accent2)','var(--violet)'];
+
+  container.innerHTML = Object.entries(dealerStats).map(([id, ds], i) => {
+    const compPct   = ds.total ? Math.round(ds.completed / ds.total * 100) : 0;
+    const partPct   = ds.total ? Math.round(ds.partial   / ds.total * 100) : 0;
+    const notPct    = ds.total ? Math.round(ds.notdone   / ds.total * 100) : 0;
+    const color     = compPct >= 80 ? 'var(--green)' : compPct >= 50 ? 'var(--amber)' : 'var(--red)';
+
+    return `
+      <div style="margin-bottom:18px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="dealer-pill ${DEALER_CLASSES[id] || 'dp-d1'}" style="font-size:10px;padding:2px 8px">${id}</span>
+            <span style="font-size:12px;font-weight:500;color:var(--text)">${ds.name}</span>
+          </div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:${color}">${compPct}% complete</span>
+        </div>
+        <!-- Stacked bar: green / amber / red -->
+        <div style="height:10px;background:var(--ink4);border-radius:5px;overflow:hidden;display:flex">
+          <div style="width:${compPct}%;background:var(--green);transition:width .4s"></div>
+          <div style="width:${partPct}%;background:var(--amber);transition:width .4s"></div>
+          <div style="width:${notPct}%;background:var(--red);transition:width .4s"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:5px">
+          <span style="font-size:10px;color:var(--green)">✓ ${ds.completed} done</span>
+          <span style="font-size:10px;color:var(--amber)">~ ${ds.partial} partial</span>
+          <span style="font-size:10px;color:var(--red)">✗ ${ds.notdone} not done</span>
+          <span style="font-size:10px;color:var(--text3);margin-left:auto">${ds.total} records</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderHistoryTable() {
+  const tbody = document.getElementById('histTableBody');
+  const countEl = document.getElementById('histTableCount');
+  const pageInfoEl = document.getElementById('histPageInfo');
+  const prevBtn = document.getElementById('histPrevBtn');
+  const nextBtn = document.getElementById('histNextBtn');
+  if (!tbody) return;
+
+  const total = histFiltered.length;
+  const totalPages = Math.max(1, Math.ceil(total / HIST_PAGE_SIZE));
+  histCurrentPage = Math.min(histCurrentPage, totalPages);
+
+  const start = (histCurrentPage - 1) * HIST_PAGE_SIZE;
+  const pageRows = histFiltered.slice(start, start + HIST_PAGE_SIZE);
+
+  if (countEl) countEl.textContent = `${total.toLocaleString()} records`;
+  if (pageInfoEl) pageInfoEl.textContent = `Page ${histCurrentPage} of ${totalPages}`;
+  if (prevBtn) prevBtn.disabled = histCurrentPage <= 1;
+  if (nextBtn) nextBtn.disabled = histCurrentPage >= totalPages;
+
+  if (!pageRows.length) {
+    tbody.innerHTML = `<tr><td colspan="7"><div class="no-data"><div class="no-data-icon">📅</div><strong>No historical data found</strong><p>Adjust your filters or submit checklists to build history.</p></div></td></tr>`;
+    return;
+  }
+
+  const STATUS_MAP = {
+    completed: { label: 'Completed', cls: 'status-pill-green' },
+    partial:   { label: 'Partial',   cls: 'status-pill-amber' },
+    notdone:   { label: 'Not Done',  cls: 'status-pill-red'   },
+  };
+
+  tbody.innerHTML = pageRows.map(r => {
+    const s = STATUS_MAP[r.status] || { label: r.status || '—', cls: '' };
+    return `<tr>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap">${r.date || '—'}</td>
+      <td><span class="dealer-pill ${DEALER_CLASSES[r.dealer] || 'dp-d1'}" style="font-size:10px">${r.dealer}</span> <span style="font-size:12px">${r.dealerName}</span></td>
+      <td style="font-size:11px;color:var(--text2)">${r.sectionName || '—'}</td>
+      <td style="font-size:11px;max-width:240px">${r.item || '—'}</td>
+      <td><span class="${s.cls}" style="font-size:10px;padding:2px 8px;border-radius:20px;white-space:nowrap">${s.label}</span></td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${formatRemarksWithLinks(r.remarks)}</td>
+      <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${r.time || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── Auto-refresh for admin dashboard ── */
+let _autoRefreshTimer = null;
+const AUTO_REFRESH_MS = 60000; // 60 seconds
+const _docVisible = () => document.visibilityState !== "hidden";
+
+function showToast(msg, type = 'success') {
+  let wrap = document.getElementById('toastWrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'toastWrap';
+    wrap.style.cssText = 'position:fixed;top:72px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+    document.body.appendChild(wrap);
+  }
+  const t = document.createElement('div');
+  const bg = type === 'success' ? '#16a34a' : type === 'error' ? '#dc2626' : '#2563eb';
+  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+  t.style.cssText = `background:${bg};color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.35);opacity:0;transform:translateX(40px);transition:all 0.25s;display:flex;align-items:center;gap:8px;pointer-events:none;max-width:320px`;
+  t.innerHTML = `<span style="font-size:15px">${icon}</span><span>${msg}</span>`;
+  wrap.appendChild(t);
+  requestAnimationFrame(() => { t.style.opacity = '1'; t.style.transform = 'translateX(0)'; });
+  setTimeout(() => {
+    t.style.opacity = '0'; t.style.transform = 'translateX(40px)';
+    setTimeout(() => t.remove(), 300);
+  }, 3500);
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  _autoRefreshTimer = setInterval(async () => {
+    // Skip refresh if tab is hidden or admin not active
+    if (!_docVisible()) return;
+    const adminDash = document.getElementById('adminDash');
+    if (!adminDash || !adminDash.classList.contains('active')) return;
+    try {
+      // Use getAllHistory which returns ALL subs; safer than getAll which may return stale dealers
+      const all = await gasGet('getAllHistory');
+      const _arn = new Date(Date.now() + 5.5*60*60*1000);
+      const _artd = `${String(_arn.getUTCDate()).padStart(2,'0')} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][_arn.getUTCMonth()]} ${_arn.getUTCFullYear()}`;
+      const todayRows = (all.subs || []).filter(r => normalizeDate(r.date) === _artd);
+      // CRITICAL: Only wipe+rebuild if Sheets returned actual rows for today.
+      // If todayRows is empty it means GAS returned nothing / network blip — keep existing data.
+      if (todayRows.length > 0) {
+        submissions = {};
+        todayRows.forEach(row => {
+          const key = String(row.key || `${row.dealer}_${row.section}`).trim();
+          if (!submissions[key]) {
+            submissions[key] = {
+              key,
+              dealer: row.dealer,
+              dealerName: row.dealerName,
+              section: Number(row.section),
+              sectionName: row.sectionName,
+              data: [],
+              time: normalizeTime(row.time),
+              date: normalizeDate(row.date)
+            };
+          }
+          submissions[key].data.push({
+            item:    String(row.item    || '').trim(),
+            status:  String(row.status  || '').trim(),
+            remarks: String(row.remarks || '').trim()
+          });
+        });
+      }
+      renderAdmin();
+      // Briefly flash the LIVE label to signal auto-refresh fired
+      const liveLabel = document.querySelector('.live-label');
+      if (liveLabel) {
+        liveLabel.style.opacity = '0.3';
+        setTimeout(() => { liveLabel.style.opacity = '1'; }, 300);
+      }
+    } catch(e) {
+      console.warn('Auto-refresh failed:', e);
+    }
+  }, AUTO_REFRESH_MS);
+}
+
+function stopAutoRefresh() {
+  if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+}
+
+// ── Init ──
+window.addEventListener('DOMContentLoaded', () => {
+  // PERF: Show login instantly — connect to Sheets in background
+  const storedUrl = (() => { try { return sessionStorage.getItem(GAS_URL_KEY); } catch(e) { return null; } })();
+  if (storedUrl && storedUrl.includes('script.google.com')) {
+    GAS_URL = storedUrl;
+    document.getElementById('sheetsSetupOverlay').style.display = 'none';
+  } else if (GAS_URL_HARDCODED.includes('script.google.com')) {
+    GAS_URL = GAS_URL_HARDCODED;
+    document.getElementById('sheetsSetupOverlay').style.display = 'none';
+  }
+  // Always show login screen immediately, then hydrate data async
+  setTimeout(() => {
+    const url = storedUrl || GAS_URL_HARDCODED;
+    if (!url.includes('script.google.com')) {
+      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+      return;
+    }
+    initApp().then(() => {
+      try { sessionStorage.setItem(GAS_URL_KEY, GAS_URL); } catch(e) {}
+      startAutoRefresh();
+      // Refresh dropdown after data loads
+      populateDealerSelect();
+    }).catch(err => {
+      console.warn('GAS connect failed:', err);
+      document.getElementById('sheetsSetupOverlay').style.display = 'flex';
+    });
+  }, 0); // yield to browser paint first
+});
+// ═══════════════════════════════════════════════════════════
+//  CHECKLIST ITEM MANAGER (Admin Panel)
+// ═══════════════════════════════════════════════════════════
+let clMgmtSection = 0; // currently active section in manager
+
+function toggleClMgmt() {
+  const body    = document.getElementById('clMgmtBody');
+  const chevron = document.getElementById('clMgmtChevron');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  if (isOpen) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    body.style.overflow  = 'hidden';
+    body.style.transition = 'max-height .3s ease, opacity .25s ease';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = '0';
+      body.style.opacity   = '0';
+    });
+    setTimeout(() => { body.style.display = 'none'; }, 300);
+    chevron.style.transform = 'rotate(-90deg)';
+  } else {
+    body.style.display   = 'block';
+    body.style.maxHeight = '0';
+    body.style.opacity   = '0';
+    body.style.overflow  = 'hidden';
+    body.style.transition = 'max-height .35s ease, opacity .25s ease';
+    requestAnimationFrame(() => {
+      body.style.maxHeight = body.scrollHeight + 2000 + 'px';
+      body.style.opacity   = '1';
+    });
+    setTimeout(() => { body.style.overflow = 'visible'; body.style.maxHeight = 'none'; }, 380);
+    chevron.style.transform = 'rotate(0deg)';
+  }
+}
+
+function renderClMgmt() {
+  // Build section tabs
+  const tabsEl = document.getElementById('clMgmtTabs');
+  if (!tabsEl) return;
+  tabsEl.innerHTML = CHECKLISTS.map((sec, i) =>
+    `<button class="cl-mgmt-tab${i===clMgmtSection?' active':''}" onclick="clMgmtSwitch(${i})">${sec.name}</button>`
+  ).join('');
+
+  // Update count badge
+  const countEl = document.getElementById('clMgmtCount');
+  if (countEl) countEl.textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
+
+  // Build items list
+  const listEl = document.getElementById('clItemsList');
+  if (!listEl) return;
+  const items = CHECKLISTS[clMgmtSection].items;
+  if (items.length === 0) {
+    listEl.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:1rem 0;text-align:center">No items yet — add one above.</div>';
+    return;
+  }
+  listEl.innerHTML = items.map((item, idx) => `
+    <div class="cl-mgmt-item" id="clmi-${idx}">
+      <span class="cl-mgmt-num">${String(idx+1).padStart(2,'0')}</span>
+      <input class="cl-mgmt-text" value="${item.replace(/"/g,'&quot;')}"
+        onblur="clRenameItem(${idx}, this.value)"
+        onkeydown="if(event.key==='Enter'){this.blur()}"
+        title="Click to rename">
+      <button class="cl-mgmt-del" onclick="clDeleteItem(${idx})" title="Remove item">×</button>
+    </div>
+  `).join('');
+
+  // Show save reminder
+  const existing = document.getElementById('clMgmtSaveRow');
+  if (!existing) {
+    const saveRow = document.createElement('div');
+    saveRow.className = 'cl-mgmt-save';
+    saveRow.id = 'clMgmtSaveRow';
+    saveRow.innerHTML = `<button class="btn-submit" onclick="clSaveChanges()" style="padding:8px 22px">💾 Save & Apply Changes</button>`;
+    document.getElementById('clItemsList').after(saveRow);
+  }
+}
+
+function clMgmtSwitch(si) {
+  clMgmtSection = si;
+  renderClMgmt();
+}
+
+function clAddItem() {
+  const input = document.getElementById('clNewItemText');
+  const text = input.value.trim();
+  if (!text) { input.focus(); return; }
+  CHECKLISTS[clMgmtSection].items.push(text);
+  input.value = '';
+  renderClMgmt();
+  // Auto-scroll to bottom of list
+  const listEl = document.getElementById('clItemsList');
+  if (listEl) listEl.lastElementChild && listEl.lastElementChild.scrollIntoView({ behavior: 'smooth' });
+}
+
+function clDeleteItem(idx) {
+  const itemName = CHECKLISTS[clMgmtSection].items[idx];
+  if (!confirm(`Remove "${itemName}" from ${CHECKLISTS[clMgmtSection].name}?`)) return;
+  CHECKLISTS[clMgmtSection].items.splice(idx, 1);
+  // Also fix itemPerms for all dealers (remove the slot at this index)
+  Object.values(dealerRegistry).forEach(dealer => {
+    const perms = dealer.itemPerms?.[clMgmtSection];
+    if (Array.isArray(perms)) perms.splice(idx, 1);
+  });
+  renderClMgmt();
+}
+
+function clRenameItem(idx, newText) {
+  newText = newText.trim();
+  if (!newText) {
+    // Revert if empty
+    renderClMgmt();
+    return;
+  }
+  CHECKLISTS[clMgmtSection].items[idx] = newText;
+  // Re-number display without full re-render to avoid focus loss
+  document.getElementById('clMgmtCount').textContent = `${CHECKLISTS[clMgmtSection].items.length} items`;
+}
+
+async function clSaveChanges() {
+  const btn = document.querySelector('.btn-submit[onclick="clSaveChanges()"]') ||
+              document.querySelector('button[onclick="clSaveChanges()"]');
+  if (btn) { btn.textContent = '⏳ Saving…'; btn.disabled = true; btn.style.opacity = '0.7'; }
   try {
+    await Promise.all([saveChecklists(), saveDealers()]);
+    if (typeof renderDealerMgmt === 'function') renderDealerMgmt();
+    if (typeof renderChecklists === 'function' && typeof currentDealer !== 'undefined' && currentDealer) {
+      renderChecklists();
+    }
+    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; btn.style.opacity = '1'; }
+    showToast('✓ Checklist saved to Google Sheets!', 'success');
+  } catch(e) {
+    if (btn) { btn.textContent = '💾 Save & Apply Changes'; btn.disabled = false; btn.style.opacity = '1'; }
+    showToast('Save failed — check GAS connection.', 'error');
+    console.error('[clSaveChanges]', e);
+  }
+}
+
+// Hook into admin panel switch to init the manager
+const _origSwitchPanel = typeof switchPanel === 'function' ? switchPanel : null;
+
+// ═══════════════════════════════════════════════════════════
+//  EXCEL IMPORT — reads NBS_Checklist_Import_Template.xlsx
+// ═══════════════════════════════════════════════════════════
+
+// Section name → CHECKLISTS index mapping
+const CL_SHEET_MAP = {
+  "Dealer Compliance": 0,
+  "Back Office Ops":   1,
+  "KYC Department":    2
+};
+
+// ═══════════════════════════════════════════════════════════
+//  PER-ITEM CODE IMPORT — dealer uploads a list of codes (no
+//  status/remarks parsing — just counts the codes into remarks)
+// ═══════════════════════════════════════════════════════════
+async function importCodesForItem(input, uid, dealerId) {
+  const file = input.files[0];
+  if (!file) return;
+  const fileName = file.name;
+  const remEl = document.getElementById(`rem-${uid}`);
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const firstSheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+    const codes = rows
+      .map(r => String(r[0] || '').trim())
+      .filter(v => v !== '');
+
+    if (codes.length === 0) {
+      showToast('No codes found in that file.', 'error');
+      input.value = '';
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) { // 8MB safety cap
+      showToast('File too large (max 8MB).', 'error');
+      input.value = '';
+      return;
+    }
+
+    if (remEl) { remEl.value = `Uploading ${codes.length} codes…`; }
+    showToast(`Uploading ${fileName}…`, 'success');
+
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload  = () => resolve(reader.result.split(',')[1]);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
 
+    // Actually upload to Drive via GAS so admin can open the real file later.
+    // Without this step the file only ever lived in browser memory and was lost on submit.
     const result = await gasUploadFile({
-      fileName: `${currentDealer}_${CHECKLISTS[si].name}_item${idx+1}_${file.name}`,
+      fileName: `${dealerId}_${fileName}`,
       mimeType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       base64
     });
 
-    if (result && result.fileUrl) {
-      itemAttachments[uid] = { fileName: file.name, fileUrl: result.fileUrl, uploadedAt: new Date().toISOString() };
-      if (statusEl) {
-        statusEl.innerHTML = `✓ <a href="${result.fileUrl}" target="_blank" style="color:var(--accent2);text-decoration:underline">${file.name}</a>`;
-        statusEl.style.color = 'var(--green)';
-      }
-      showToast('File attached — remember to Submit Section to save it.', 'success');
-    } else {
-      throw new Error(result && result.error ? result.error : 'Unknown error');
+    if (!result || !result.fileUrl) {
+      throw new Error(result && result.error ? result.error : 'Upload returned no file link');
     }
+
+    if (!window._itemImportFiles) window._itemImportFiles = {};
+    window._itemImportFiles[uid] = { fileName, count: codes.length, fileUrl: result.fileUrl };
+
+    // Fill remarks with a summary AND the real Drive link, so it travels with the
+    // submission into Sheets and admin can click through to the actual file.
+    if (remEl) {
+      remEl.value = `${codes.length} codes uploaded (${fileName}): ${result.fileUrl}`;
+      remEl.classList.remove('mandatory');
+    }
+    // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
+    const alreadyChecked = document.querySelector(`input[name="${uid}"]:checked`);
+    if (!alreadyChecked) {
+      const completedRadio = document.querySelector(`input[name="${uid}"][value="completed"]`);
+      if (completedRadio) {
+        completedRadio.checked = true;
+        completedRadio.dispatchEvent(new Event('change'));
+      }
+    }
+    showToast(`✓ ${codes.length} codes uploaded — admin can open the file from Submissions`, 'success');
   } catch (err) {
-    console.error('[uploadItemAttachment]', err);
-    if (statusEl) { statusEl.textContent = 'Upload failed — try again'; statusEl.style.color = '#EF4444'; }
-    showToast('File upload failed. Check connection and try again.', 'error');
+    console.error('[importCodesForItem]', err);
+    if (remEl) remEl.value = '';
+    showToast('Failed to upload that file. Check connection and try again.', 'error');
+  } finally {
+    input.value = '';
   }
-  input.value = '';
 }
 
-// Uses the iframe+form-POST pattern to reliably get a real response back from GAS
-// (no-cors fetch cannot read a response; this avoids that limitation entirely).
+// Uploads a file to GAS using a hidden iframe + form POST, which reliably returns
+// a real response (a no-cors fetch cannot read anything back from GAS).
 function gasUploadFile(payload) {
   return new Promise((resolve, reject) => {
     const reqId = 'up_' + Date.now() + '_' + Math.random().toString(36).slice(2);
@@ -4309,21 +5039,18 @@ function gasUploadFile(payload) {
       base64: payload.base64
     };
     Object.entries(fields).forEach(([k, v]) => {
-      const input = document.createElement('input');
-      input.type = 'hidden'; input.name = k; input.value = v;
-      form.appendChild(input);
+      const inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = k; inp.value = v;
+      form.appendChild(inp);
     });
     document.body.appendChild(form);
 
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error('Upload timed out'));
-    }, 30000);
+    const timeout = setTimeout(() => { cleanup(); reject(new Error('Upload timed out')); }, 30000);
 
     function cleanup() {
       clearTimeout(timeout);
       form.remove();
-      setTimeout(() => iframe.remove(), 500); // slight delay so load event can still fire
+      setTimeout(() => iframe.remove(), 500);
     }
 
     iframe.onload = () => {
@@ -4341,6 +5068,315 @@ function gasUploadFile(payload) {
 
     form.submit();
   });
+}
+
+async function clImportExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = ''; // reset so same file can be re-imported
+
+  try {
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf, { type: 'array' });
+    let imported = 0;
+    let skipped  = 0;
+    let importedSections = [];
+
+    // Process each sheet whose name matches a known section
+    wb.SheetNames.forEach(sheetName => {
+      const si = CL_SHEET_MAP[sheetName];
+      if (si === undefined) return; // skip Instructions or unknown sheets
+
+      const ws   = wb.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+      // Find header row (contains "Task Name")
+      let headerRow = -1;
+      for (let i = 0; i < Math.min(rows.length, 10); i++) {
+        if (rows[i].some(c => String(c).toLowerCase().includes('task name'))) {
+          headerRow = i;
+          break;
+        }
+      }
+      if (headerRow === -1) { skipped++; return; }
+
+      // Find "Task Name" column index
+      const headers = rows[headerRow].map(c => String(c).toLowerCase());
+      const taskCol = headers.findIndex(h => h.includes('task name'));
+      if (taskCol === -1) { skipped++; return; }
+
+      // Collect non-empty task names after header row
+      const tasks = [];
+      for (let i = headerRow + 1; i < rows.length; i++) {
+        const val = String(rows[i][taskCol] || '').trim();
+        // Skip empty rows and the "Add new tasks here" hint row
+        if (val && !val.startsWith('←') && !val.startsWith('Add new')) {
+          tasks.push(val);
+        }
+      }
+
+      if (tasks.length === 0) { skipped++; return; }
+
+      // Update CHECKLISTS
+      const prevLen = (CHECKLISTS[si].items || []).length;
+      CHECKLISTS[si].items = tasks;
+      // Fix itemPerms for all dealers — preserve existing perms for items that already
+      // existed; brand-new items (beyond prevLen) default to FALSE so admin explicitly
+      // grants access via the picker shown after import, instead of silently giving
+      // every dealer access to new tasks.
+      Object.values(dealerRegistry).forEach(dealer => {
+        if (!dealer.itemPerms) dealer.itemPerms = {};
+        const existing = dealer.itemPerms[si] || [];
+        dealer.itemPerms[si] = tasks.map((_, idx) =>
+          idx < prevLen ? (existing[idx] !== undefined ? existing[idx] : true) : false
+        );
+      });
+      importedSections.push({ si, newCount: Math.max(0, tasks.length - prevLen) });
+      imported++;
+    });
+
+    if (imported === 0) {
+      showToast('No matching section sheets found in this file.', 'error');
+      return;
+    }
+
+    // Re-render manager view
+    renderClMgmt();
+    if (typeof renderChecklists === 'function' && currentDealer) renderChecklists();
+
+    showToast(
+      `Imported ${imported} section${imported>1?'s':''} successfully!${skipped?' ('+skipped+' sheet(s) skipped)':''}`,
+      'success'
+    );
+
+    // If any section gained brand-new items, prompt admin to grant dealer access
+    const sectionsWithNewItems = importedSections.filter(s => s.newCount > 0);
+    if (sectionsWithNewItems.length > 0) {
+      openGrantAccessModal(sectionsWithNewItems);
+    }
+  } catch (err) {
+    console.error('[Import]', err);
+    showToast('Failed to read Excel file. Make sure it is the NBS template format.', 'error');
+  }
+}
+
+// ─── GRANT ACCESS MODAL — shown after importing checklist items with new tasks ───
+function openGrantAccessModal(sectionsWithNewItems) {
+  const old = document.getElementById('grantAccessModal');
+  if (old) old.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'grantAccessModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9100;background:rgba(10,11,15,0.9);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+
+  const dealerIds = Object.keys(dealerRegistry);
+  const sectionLabel = sectionsWithNewItems
+    .map(s => `${CHECKLISTS[s.si].name} (+${s.newCount} new)`)
+    .join(', ');
+
+  modal.innerHTML = `
+    <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border)">
+        <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700">Grant Access to New Items</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px">${sectionLabel}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px">New tasks default to <strong style="color:var(--text2)">no access</strong>. Select which dealers should see them — you can fine-tune per item later in Manage Dealers.</div>
+      </div>
+      <div style="padding:1rem 1.5rem;overflow-y:auto;display:flex;flex-direction:column;gap:8px">
+        ${dealerIds.map(id => `
+          <label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;cursor:pointer">
+            <input type="checkbox" class="grantAccessDealerChk" value="${id}" style="width:16px;height:16px;cursor:pointer">
+            <span style="font-size:13px">${dealerRegistry[id].name} <span style="color:var(--text3);font-size:11px">(${id})</span></span>
+          </label>
+        `).join('')}
+      </div>
+      <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end">
+        <button onclick="document.getElementById('grantAccessModal').remove()" style="padding:9px 18px;background:var(--ink3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);cursor:pointer;font-size:13px">Skip</button>
+        <button onclick="applyGrantAccess(${JSON.stringify(sectionsWithNewItems).replace(/"/g,'&quot;')})" style="padding:9px 18px;background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:13px;font-weight:600">Grant Access</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+function applyGrantAccess(sectionsWithNewItems) {
+  const checked = Array.from(document.querySelectorAll('.grantAccessDealerChk:checked')).map(c => c.value);
+  checked.forEach(dealerId => {
+    const dealer = dealerRegistry[dealerId];
+    sectionsWithNewItems.forEach(({ si }) => {
+      const items = CHECKLISTS[si].items;
+      const perms = dealer.itemPerms[si] || items.map(() => false);
+      // Grant access only to the newly added tail items
+      const prevLen = items.length - (sectionsWithNewItems.find(s => s.si === si)?.newCount || 0);
+      for (let i = prevLen; i < items.length; i++) perms[i] = true;
+      dealer.itemPerms[si] = perms;
+    });
+  });
+  saveDealers().then(() => {
+    showToast(`Access granted to ${checked.length} dealer${checked.length!==1?'s':''}`, 'success');
+  }).catch(() => showToast('Saved locally — Sheets sync may be delayed', 'error'));
+  renderDealerManagement();
+  document.getElementById('grantAccessModal').remove();
+}
+
+// "Download Template" — generates a fresh copy of the template using current CHECKLISTS data
+function clDownloadTemplate(e) {
+  e.preventDefault();
+
+  if (typeof XLSX === 'undefined') {
+    showToast('Excel library not loaded yet — please wait a moment.', 'error');
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+
+  // Instructions sheet
+  const instData = [
+    ["NBS Compliance Hub — Checklist Import Template"],
+    ["Northeast Broking Services"],
+    [],
+    ["HOW TO USE"],
+    ["1. Go to each section sheet tab."],
+    ["2. Edit the Task Name column — add, rename, or delete rows."],
+    ["3. Do NOT rename the sheet tabs or the column headers."],
+    ["4. Save the file and import it in Admin → Manage Dealers → Import Excel."],
+  ];
+  const wsInst = XLSX.utils.aoa_to_sheet(instData);
+  wsInst['!cols'] = [{ wch: 80 }];
+  XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
+
+  // One sheet per section
+  CHECKLISTS.forEach(section => {
+    const rows = [["#", "Section", "Task Name (edit this column)"]];
+    section.items.forEach((item, i) => {
+      rows.push([i + 1, section.name, item]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 65 }];
+    XLSX.utils.book_append_sheet(wb, ws, section.name);
+  });
+
+  XLSX.writeFile(wb, "NBS_Checklist_Import_Template.xlsx");
+  showToast('Template downloaded!', 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  PAST DATA UPLOAD — admin bulk-imports historical submissions
+// ═══════════════════════════════════════════════════════════
+
+function downloadPastDataTemplate(e) {
+  e.preventDefault();
+  const wb = XLSX.utils.book_new();
+
+  const instData = [
+    ["NBS Compliance Hub — Past Data Upload Template"],
+    ["Northeast Broking Services"],
+    [],
+    ["HOW TO USE"],
+    ["1. Fill one row per checklist item that was completed on a past date."],
+    ["2. Dealer ID must match an existing dealer ID exactly (see Manage Dealers)."],
+    ["3. Date format: DD MMM YYYY, e.g. 15 Jun 2026."],
+    ["4. Status must be one of: completed, partial, notdone."],
+    ["5. Section must be one of: 0 (Dealer Compliance), 1 (Back Office Ops), 2 (KYC Department)."],
+    ["6. Save and upload this file in Admin → Past Data → Upload Past Data."],
+    ["7. Existing entries for the same dealer+section+date will be replaced — not duplicated."],
+  ];
+  const wsInst = XLSX.utils.aoa_to_sheet(instData);
+  wsInst['!cols'] = [{ wch: 90 }];
+  XLSX.utils.book_append_sheet(wb, wsInst, "Instructions");
+
+  const sampleData = [
+    ["dealerId", "section", "item", "status", "remarks", "date", "time"],
+    ["RMCHO2", 0, "TERMINAL PASSWORD SECURED", "completed", "", "15 Jun 2026", "9:00 AM"],
+    ["RMCHO2", 0, "NO USE OF PERSONAL MOBILE FOR ORDERS", "partial", "Phone used briefly for call", "15 Jun 2026", "9:00 AM"],
+  ];
+  const wsData = XLSX.utils.aoa_to_sheet(sampleData);
+  wsData['!cols'] = [{ wch: 14 }, { wch: 9 }, { wch: 45 }, { wch: 12 }, { wch: 30 }, { wch: 14 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, wsData, "PastData");
+
+  XLSX.writeFile(wb, "NBS_PastData_Upload_Template.xlsx");
+  showToast('Template downloaded!', 'success');
+}
+
+async function importPastDataExcel(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type: 'array' });
+    const ws  = wb.Sheets['PastData'] || wb.Sheets[wb.SheetNames[wb.SheetNames.length - 1]];
+    if (!ws) { showToast('No "PastData" sheet found in file.', 'error'); return; }
+
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    if (rows.length === 0) { showToast('No data rows found.', 'error'); return; }
+
+    // Validate and group rows by dealer+section+date into submission objects
+    const groups = {}; // key: dealerId||section||date -> array of {item,status,remarks}
+    let skipped = 0;
+    rows.forEach(r => {
+      const dealerId = String(r.dealerId || '').trim();
+      const section  = Number(r.section);
+      const item     = String(r.item || '').trim();
+      const status   = String(r.status || '').trim();
+      const remarks  = String(r.remarks || '').trim();
+      const date     = String(r.date || '').trim();
+      const time     = String(r.time || '').trim() || '12:00 PM';
+
+      if (!dealerId || !dealerRegistry[dealerId] || !item || !status || !date) { skipped++; return; }
+      if (!['completed','partial','notdone'].includes(status)) { skipped++; return; }
+      if (!CHECKLISTS[section]) { skipped++; return; }
+
+      const key = `${dealerId}||${section}||${date}`;
+      if (!groups[key]) groups[key] = { dealerId, section, date, time, items: [] };
+      groups[key].items.push({ item, status, remarks });
+    });
+
+    const submissionKeys = Object.keys(groups);
+    if (submissionKeys.length === 0) {
+      showToast(`No valid rows found.${skipped ? ' ' + skipped + ' row(s) skipped — check dealer IDs and statuses.' : ''}`, 'error');
+      return;
+    }
+
+    showToast(`Uploading ${submissionKeys.length} submission group(s)…`, 'success');
+
+    // Send each group as a saveSubmission call (reuses existing date-safe backend logic)
+    let success = 0, failed = 0;
+    for (const key of submissionKeys) {
+      const g = groups[key];
+      const dealer = dealerRegistry[g.dealerId];
+      const sub = {
+        key: `${g.dealerId}_${g.section}`,
+        dealer: g.dealerId,
+        dealerName: dealer.name,
+        section: g.section,
+        sectionName: CHECKLISTS[g.section].name,
+        data: g.items,
+        date: g.date,
+        time: g.time,
+        isPastDataUpload: true // tells GAS to use this date instead of "today"
+      };
+      try {
+        await gasPost({ action: 'saveSubmission', data: sub });
+        success++;
+      } catch (e) {
+        console.warn('[importPastDataExcel] failed for', key, e);
+        failed++;
+      }
+    }
+
+    showToast(
+      `Past data import complete: ${success} saved${failed ? ', ' + failed + ' failed' : ''}${skipped ? ' (' + skipped + ' row(s) skipped)' : ''}`,
+      failed ? 'error' : 'success'
+    );
+
+    // Refresh history view
+    if (typeof loadHistoryData === 'function') loadHistoryData();
+  } catch (err) {
+    console.error('[importPastDataExcel]', err);
+    showToast('Failed to read Excel file. Make sure it matches the Past Data template.', 'error');
+  }
 }
 
 </script>
