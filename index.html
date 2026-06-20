@@ -2466,14 +2466,13 @@ function getSheetData(name) {
 }
 
 function saveDealers(dealers) {
-  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms','itemImportPerms']);
+  const sh = getSheet('Dealers', ['id','name','pass','sections','itemPerms']);
   sh.clearContents();
-  sh.appendRow(['id','name','pass','sections','itemPerms','itemImportPerms']);
+  sh.appendRow(['id','name','pass','sections','itemPerms']);
   dealers.forEach(d => sh.appendRow([
     d.id, d.name, d.pass,
     JSON.stringify(d.sections),
-    JSON.stringify(d.itemPerms || {}),
-    JSON.stringify(d.itemImportPerms || {})
+    JSON.stringify(d.itemPerms || {})
   ]));
   return { ok: true };
 }
@@ -2704,8 +2703,7 @@ async function saveDealers() {
     name: d.name,
     pass: d.pass,
     sections: d.sections ?? [0,1,2],
-    itemPerms: d.itemPerms ?? {},
-    itemImportPerms: d.itemImportPerms ?? {}
+    itemPerms: d.itemPerms ?? {}
   }));
   await gasPost({ action: 'saveDealers', data: arr });
 }
@@ -2751,13 +2749,6 @@ async function initApp() {
             try { return JSON.parse(d.itemPerms); } catch(e) { return {}; }
           }
           return d.itemPerms;
-        })(),
-        itemImportPerms: (() => {
-          if (!d.itemImportPerms) return {};
-          if (typeof d.itemImportPerms === 'string') {
-            try { return JSON.parse(d.itemImportPerms); } catch(e) { return {}; }
-          }
-          return d.itemImportPerms;
         })()
       };
     });
@@ -3144,8 +3135,6 @@ function renderChecklists() {
       if (!perms[idx]) return; // item not assigned to this dealer
       visibleCount++;
       const uid = `s${si}_i${idx}_${currentDealer}`;
-      const importPerms = getItemImportPerms(dealer, si);
-      const canImport = !!importPerms[idx];
       const row = document.createElement('div');
       row.className = 'cl-row';
       row.id = `row-${uid}`;
@@ -3159,11 +3148,6 @@ function renderChecklists() {
           <label for="${uid}_p" class="status-label"><span class="dot"></span>Partial</label>
           <input type="radio" name="${uid}" value="notdone" id="${uid}_n" class="status-radio" onchange="onStatusChange('${uid}',${si})">
           <label for="${uid}_n" class="status-label"><span class="dot"></span>Not Done</label>
-          ${canImport ? `
-          <label style="display:flex;align-items:center;gap:3px;cursor:pointer;padding:4px 8px;border-radius:20px;border:1px solid var(--border2);background:var(--glass);margin-left:2px" title="Import a code list for this task">
-            <input type="file" accept=".xlsx" style="display:none" onchange="importCodesForItem(this,'${uid}','${currentDealer}')">
-            <span style="font-size:11px;color:var(--accent2)">📥</span>
-          </label>` : ''}
         </div>
         <div class="col-remarks remarks-area">
           <textarea class="remarks-input" id="rem-${uid}" placeholder="Add remark…" rows="1"
@@ -3724,15 +3708,6 @@ function getFilters() {
   };
 }
 
-function formatRemarksWithLinks(remarks) {
-  if (!remarks) return '<span style="color:var(--text4)">—</span>';
-  const esc = String(remarks)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/\n/g, '<br>');
-  return esc.replace(/(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" style="color:var(--accent2);text-decoration:underline">📎 Open File</a>');
-}
-
 function applyFilters(rows, f) {
   if (f.dealer)  rows = rows.filter(r => r.dealer   === f.dealer);
   if (f.section !== '') rows = rows.filter(r => r.section == f.section);
@@ -3888,7 +3863,7 @@ function renderTable(rows) {
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${String(r.itemIdx).padStart(2,'0')}</td>
       <td style="font-size:13px">${r.item}</td>
       <td>${statusChip(r.status)}</td>
-      <td class="remarks-cell">${formatRemarksWithLinks(r.remarks)}</td>
+      <td class="remarks-cell">${r.remarks || '<span style="color:var(--text4)">—</span>'}</td>
       <td class="time-cell">${r.date}<br>${r.time}</td>
     </tr>`).join('');
 }
@@ -4123,24 +4098,11 @@ function getItemPerms(dealer, si) {
   return dealer.itemPerms[si];
 }
 
-
-
-function getItemImportPerms(dealer, si) {
-  // dealer.itemImportPerms: { [si]: [false,true,false,...] } — per-item "allow Excel code import"
-  if (!dealer.itemImportPerms) dealer.itemImportPerms = {};
-  if (!dealer.itemImportPerms[si]) {
-    dealer.itemImportPerms[si] = CHECKLISTS[si].items.map(() => false);
-  }
-  while (dealer.itemImportPerms[si].length < CHECKLISTS[si].items.length) dealer.itemImportPerms[si].push(false);
-  return dealer.itemImportPerms[si];
-}
-
 function openItemPermsModal(dealerId, si) {
   const dealer = dealerRegistry[dealerId];
   const sectionName = CHECKLISTS[si].name;
   const items = CHECKLISTS[si].items;
   const perms = getItemPerms(dealer, si);
-  const importPerms = getItemImportPerms(dealer, si);
 
   // Remove existing modal
   const old = document.getElementById('itemPermsModal');
@@ -4175,22 +4137,16 @@ function openItemPermsModal(dealerId, si) {
 
       <div style="overflow-y:auto;padding:0.5rem 1rem">
         ${items.map((item, idx) => `
-          <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border)"
+          <label style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;cursor:pointer;transition:background .1s;border-bottom:1px solid var(--border)"
             onmouseover="this.style.background='var(--glass)'" onmouseout="this.style.background='transparent'">
             <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
               onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
               style="width:14px;height:14px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-            <span style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
+            <span style="font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
               <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text4);margin-right:6px">${String(idx+1).padStart(2,'0')}</span>
               ${item}
             </span>
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:2px 8px;border-radius:12px;background:${importPerms[idx] ? 'var(--accent-dim)' : 'var(--glass)'};border:1px solid ${importPerms[idx] ? 'rgba(59,123,255,0.3)' : 'var(--border2)'}" title="Allow this dealer to import a code list (Excel) for this task instead of typing remarks">
-              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importPerms[idx] ? 'checked' : ''}
-                onchange="toggleItemImportPerm('${dealerId}',${si},${idx},this.checked)"
-                style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer">
-              <span style="font-size:10px;font-weight:600;color:${importPerms[idx] ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Import</span>
-            </label>
-          </div>`).join('')}
+          </label>`).join('')}
       </div>
 
       <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
@@ -4211,7 +4167,7 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   const perms = getItemPerms(dealer, si);
   perms[idx] = checked;
   // Update label color inline
-  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('div')?.querySelector('span');
+  const lbl = document.querySelector(`#itemperm_${dealerId}_${si}_${idx}`)?.closest('label')?.querySelector('span:last-child');
   if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   // Update count label
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4219,19 +4175,6 @@ function toggleItemPerm(dealerId, si, idx, checked) {
   // Update select-all checkbox state
   const allBox = document.getElementById(`selectAllItems_${dealerId}_${si}`);
   if (allBox) allBox.checked = perms.every(Boolean);
-}
-
-function toggleItemImportPerm(dealerId, si, idx, checked) {
-  const dealer = dealerRegistry[dealerId];
-  const importPerms = getItemImportPerms(dealer, si);
-  importPerms[idx] = checked;
-  const wrap = document.getElementById(`itemimport_${dealerId}_${si}_${idx}`)?.closest('label');
-  if (wrap) {
-    wrap.style.background = checked ? 'var(--accent-dim)' : 'var(--glass)';
-    wrap.style.borderColor = checked ? 'rgba(59,123,255,0.3)' : 'var(--border2)';
-    const txt = wrap.querySelector('span');
-    if (txt) txt.style.color = checked ? 'var(--accent2)' : 'var(--text3)';
-  }
 }
 
 function toggleAllItems(dealerId, si, checked) {
@@ -4242,7 +4185,7 @@ function toggleAllItems(dealerId, si, checked) {
   CHECKLISTS[si].items.forEach((_, idx) => {
     const cb = document.getElementById(`itemperm_${dealerId}_${si}_${idx}`);
     if (cb) { cb.checked = checked; }
-    const lbl = cb?.closest('div')?.querySelector('span');
+    const lbl = cb?.closest('label')?.querySelector('span:last-child');
     if (lbl) lbl.style.color = checked ? 'var(--text)' : 'var(--text3)';
   });
   const countEl = document.getElementById(`itemCountLabel_${dealerId}_${si}`);
@@ -4666,7 +4609,7 @@ function renderHistoryTable() {
       <td style="font-size:11px;color:var(--text2)">${r.sectionName || '—'}</td>
       <td style="font-size:11px;max-width:240px">${r.item || '—'}</td>
       <td><span class="${s.cls}" style="font-size:10px;padding:2px 8px;border-radius:20px;white-space:nowrap">${s.label}</span></td>
-      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${formatRemarksWithLinks(r.remarks)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${r.remarks || '—'}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${r.time || '—'}</td>
     </tr>`;
   }).join('');
@@ -4932,143 +4875,6 @@ const CL_SHEET_MAP = {
   "Back Office Ops":   1,
   "KYC Department":    2
 };
-
-// ═══════════════════════════════════════════════════════════
-//  PER-ITEM CODE IMPORT — dealer uploads a list of codes (no
-//  status/remarks parsing — just counts the codes into remarks)
-// ═══════════════════════════════════════════════════════════
-async function importCodesForItem(input, uid, dealerId) {
-  const file = input.files[0];
-  if (!file) return;
-  const fileName = file.name;
-  const remEl = document.getElementById(`rem-${uid}`);
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const firstSheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-    const codes = rows
-      .map(r => String(r[0] || '').trim())
-      .filter(v => v !== '');
-
-    if (codes.length === 0) {
-      showToast('No codes found in that file.', 'error');
-      input.value = '';
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) { // 8MB safety cap
-      showToast('File too large (max 8MB).', 'error');
-      input.value = '';
-      return;
-    }
-
-    if (remEl) { remEl.value = `Uploading ${codes.length} codes…`; }
-    showToast(`Uploading ${fileName}…`, 'success');
-
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-
-    // Actually upload to Drive via GAS so admin can open the real file later.
-    // Without this step the file only ever lived in browser memory and was lost on submit.
-    const result = await gasUploadFile({
-      fileName: `${dealerId}_${fileName}`,
-      mimeType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      base64
-    });
-
-    if (!result || !result.fileUrl) {
-      throw new Error(result && result.error ? result.error : 'Upload returned no file link');
-    }
-
-    if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, count: codes.length, fileUrl: result.fileUrl };
-
-    // Fill remarks with a summary AND the real Drive link, so it travels with the
-    // submission into Sheets and admin can click through to the actual file.
-    if (remEl) {
-      remEl.value = `${codes.length} codes uploaded (${fileName}): ${result.fileUrl}`;
-      remEl.classList.remove('mandatory');
-    }
-    // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
-    const alreadyChecked = document.querySelector(`input[name="${uid}"]:checked`);
-    if (!alreadyChecked) {
-      const completedRadio = document.querySelector(`input[name="${uid}"][value="completed"]`);
-      if (completedRadio) {
-        completedRadio.checked = true;
-        completedRadio.dispatchEvent(new Event('change'));
-      }
-    }
-    showToast(`✓ ${codes.length} codes uploaded — admin can open the file from Submissions`, 'success');
-  } catch (err) {
-    console.error('[importCodesForItem]', err);
-    if (remEl) remEl.value = '';
-    showToast('Failed to upload that file. Check connection and try again.', 'error');
-  } finally {
-    input.value = '';
-  }
-}
-
-// Uploads a file to GAS using a hidden iframe + form POST, which reliably returns
-// a real response (a no-cors fetch cannot read anything back from GAS).
-function gasUploadFile(payload) {
-  return new Promise((resolve, reject) => {
-    const reqId = 'up_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-    const iframeName = 'gasUploadFrame_' + reqId;
-
-    const iframe = document.createElement('iframe');
-    iframe.name = iframeName;
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = GAS_URL;
-    form.target = iframeName;
-    form.style.display = 'none';
-
-    const fields = {
-      action: 'uploadAttachment',
-      reqId,
-      fileName: payload.fileName,
-      mimeType: payload.mimeType,
-      base64: payload.base64
-    };
-    Object.entries(fields).forEach(([k, v]) => {
-      const inp = document.createElement('input');
-      inp.type = 'hidden'; inp.name = k; inp.value = v;
-      form.appendChild(inp);
-    });
-    document.body.appendChild(form);
-
-    const timeout = setTimeout(() => { cleanup(); reject(new Error('Upload timed out')); }, 30000);
-
-    function cleanup() {
-      clearTimeout(timeout);
-      form.remove();
-      setTimeout(() => iframe.remove(), 500);
-    }
-
-    iframe.onload = () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow.document;
-        const text = doc.body ? doc.body.textContent : '';
-        const json = JSON.parse(text);
-        cleanup();
-        resolve(json);
-      } catch (e) {
-        cleanup();
-        reject(e);
-      }
-    };
-
-    form.submit();
-  });
-}
 
 async function clImportExcel(input) {
   const file = input.files[0];
