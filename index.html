@@ -2029,13 +2029,10 @@ body {
       <div class="admin-panel" id="panel-submissions">
         <div class="panel-header">
           <h2>All Submissions</h2>
-          <p id="submissionsSubtitle">Full itemized view of every checklist entry submitted today.</p>
+          <p>Full itemized view of every checklist entry submitted today.</p>
         </div>
         <div class="admin-filters-row">
           <span class="filter-label">FILTER:</span>
-          <select class="filter-select" id="filterSubDate" onchange="renderAdmin()" style="min-width:140px">
-            <option value="">Today</option>
-          </select>
           <select class="filter-select" id="filterDealer" onchange="renderAdmin()">
             <option value="">All Dealers</option>
           </select>
@@ -3479,23 +3476,6 @@ async function submitSection(si) {
   const section = CHECKLISTS[si];
   const dealer  = dealerRegistry[currentDealer];
   const perms   = dealer ? getItemPerms(dealer, si) : section.items.map(() => true);
-
-  // Block submit if any item in this section still has a file upload in progress —
-  // otherwise the temporary "Uploading…" placeholder text gets saved permanently
-  // instead of the real file link, since the upload finishes asynchronously after
-  // submit has already read the remarks field.
-  if (window._activeImports) {
-    const stillUploading = section.items.some((_, idx) => {
-      if (!perms[idx]) return false;
-      const uid = `s${si}_i${idx}_${currentDealer}`;
-      return !!window._activeImports[uid];
-    });
-    if (stillUploading) {
-      showToast('⏳ A file is still uploading — please wait for it to finish before submitting.', 'error');
-      return;
-    }
-  }
-
   let valid = true;
   const data = [];      // ALL items (for local state / restore)
   const filledData = []; // ONLY filled items (sent to Sheets — reduces rows dramatically)
@@ -3830,48 +3810,10 @@ function renderAdmin() {
   renderAlerts();
   renderDealerManagement();
 
-  // Submissions panel: respects the new date filter (defaults to today)
-  // — does not touch Overview, which keeps using its own date strip.
-  const subDateSel = document.getElementById('filterSubDate');
-  populateSubDateDropdown(subDateSel);
-  const subDateVal = subDateSel ? subDateSel.value : '';
-  const subRows = subDateVal
-    ? histAllRows.filter(r => r.date === subDateVal)
-    : buildRows(); // today, live data
-
+  // Submissions panel still uses today's data + its own filters
   const f = getFilters();
-  let rows = applyFilters(subRows, f);
+  let rows = applyFilters(allTodayRows, f);
   renderTable(rows);
-
-  const subSubtitle = document.getElementById('submissionsSubtitle');
-  if (subSubtitle) {
-    subSubtitle.textContent = subDateVal
-      ? `Full itemized view of every checklist entry submitted on ${subDateVal}.`
-      : 'Full itemized view of every checklist entry submitted today.';
-  }
-}
-
-// Fills the Submissions date dropdown with every distinct date found in history,
-// newest first, keeping "Today" pinned at the top. Preserves current selection.
-// Repopulates only when histAllRows actually changes size (avoids resetting
-// the dropdown's selection on every renderAdmin() call).
-function populateSubDateDropdown(selectEl) {
-  if (!selectEl) return;
-  const knownCount = Number(selectEl.dataset.histCount || -1);
-  if (knownCount === histAllRows.length) return;
-  selectEl.dataset.histCount = String(histAllRows.length);
-
-  const prevValue = selectEl.value;
-  const todayDMY = today();
-  const dates = Array.from(new Set(histAllRows.map(r => r.date).filter(Boolean)))
-    .filter(d => d !== todayDMY)
-    .sort((a, b) => new Date(b.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')) - new Date(a.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')));
-
-  selectEl.innerHTML = `<option value="">Today (${todayDMY})</option>` +
-    dates.map(d => `<option value="${d}">${d}</option>`).join('');
-  if (prevValue && [...selectEl.options].some(o => o.value === prevValue)) {
-    selectEl.value = prevValue;
-  }
 }
 
 function refreshFilterDropdowns() {
@@ -5193,23 +5135,6 @@ async function importCodesForItem(input, uid, dealerId) {
   const section = si !== null ? CHECKLISTS[si] : null;
   const itemText = section ? section.items[idx] : '';
 
-  // Lock that section's Submit button for the duration of the upload so the
-  // dealer can't accidentally submit while the placeholder text is still showing.
-  // Uses a per-section counter (not a single snapshot) so multiple simultaneous
-  // uploads in the same section don't prematurely re-enable the button.
-  if (!window._sectionUploadCounts) window._sectionUploadCounts = {};
-  const submitBtn = si !== null ? document.getElementById(`submit-btn-${si}`) : null;
-  if (si !== null) {
-    window._sectionUploadCounts[si] = (window._sectionUploadCounts[si] || 0) + 1;
-    if (submitBtn && !submitBtn.dataset.origText) {
-      submitBtn.dataset.origText = submitBtn.textContent;
-    }
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.textContent = '⏳ Uploading file…';
-    }
-  }
-
   const remEl = document.getElementById(`rem-${uid}`);
   const origRemPlaceholder = remEl ? remEl.value : '';
 
@@ -5269,7 +5194,7 @@ async function importCodesForItem(input, uid, dealerId) {
 
     let driveUrl = null;
     let lastPollError = null;
-    const maxAttempts = 24; // ~24 * 1.5s ≈ 36s — generous for a cold-starting script + large file
+    const maxAttempts = 14; // ~14 * 1.5s ≈ 21s, generous for a cold-starting script
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(r => setTimeout(r, 1500));
       try {
@@ -5315,15 +5240,6 @@ async function importCodesForItem(input, uid, dealerId) {
   } finally {
     input.value = '';
     delete window._activeImports[uid];
-    // Only restore the Submit button once ALL uploads in this section have finished
-    if (si !== null && window._sectionUploadCounts) {
-      window._sectionUploadCounts[si] = Math.max(0, (window._sectionUploadCounts[si] || 1) - 1);
-      if (window._sectionUploadCounts[si] === 0 && submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.textContent = submitBtn.dataset.origText || 'Submit Section';
-        delete submitBtn.dataset.origText;
-      }
-    }
   }
 }
 
