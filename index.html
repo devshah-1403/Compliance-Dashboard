@@ -2044,6 +2044,7 @@ body {
             <option value="notdone">Not Done</option>
           </select>
           <input class="search-input" id="searchInput" placeholder="Search checklist items…" oninput="renderAdmin()">
+          <button class="filter-select" id="clearFiltersBtn" onclick="clearSubmissionFilters()" style="cursor:pointer;color:var(--accent2);border-color:var(--accent2)">✕ Clear Filters</button>
         </div>
         <div class="table-card">
           <div class="table-card-header">
@@ -3680,6 +3681,16 @@ function renderAdmin() {
 
 // Fills the Submissions date dropdown with every distinct date found in history,
 // newest first, keeping "Today" pinned at the top. Preserves current selection.
+function clearSubmissionFilters() {
+  ['filterDealer','filterSection','filterStatus'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const search = document.getElementById('searchInput');
+  if (search) search.value = '';
+  renderAdmin();
+}
+
 function populateSubDateDropdown(selectEl) {
   if (!selectEl) return;
   const knownCount = Number(selectEl.dataset.histCount || -1);
@@ -3910,12 +3921,22 @@ function renderTable(rows) {
   const cnt   = document.getElementById('tableCount');
   if (cnt) cnt.textContent = `${rows.length} record${rows.length !== 1 ? 's' : ''}`;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="7">
-      <div class="no-data">
-        <div class="no-data-icon">📋</div>
-        <strong>No submissions found</strong>
-        <p>Submissions will appear here once dealers fill their checklists.</p>
-      </div></td></tr>`;
+    const f = getFilters();
+    const dateSel = document.getElementById('filterSubDate');
+    const hasActiveFilters = !!(f.dealer || f.section !== '' || f.status || f.search || (dateSel && dateSel.value));
+    tbody.innerHTML = hasActiveFilters
+      ? `<tr><td colspan="7">
+          <div class="no-data">
+            <div class="no-data-icon">🔍</div>
+            <strong>No submissions match your filters</strong>
+            <p>Try a different date or click "✕ Clear Filters" above to see everything.</p>
+          </div></td></tr>`
+      : `<tr><td colspan="7">
+          <div class="no-data">
+            <div class="no-data-icon">📋</div>
+            <strong>No submissions found</strong>
+            <p>Submissions will appear here once dealers fill their checklists.</p>
+          </div></td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(r => `
