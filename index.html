@@ -1917,14 +1917,6 @@ body {
           Past Data
         </button>
 
-        <button class="nav-item" onclick="switchPanel('codefiles',this)">
-          <span class="nav-icon">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 1.5h6l4 4V14a.5.5 0 01-.5.5h-9A.5.5 0 013 14V2a.5.5 0 01.5-.5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9 1.5V5.5H13" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
-          </span>
-          Code Uploads
-          <span class="nav-badge" id="codeFileCountBadge">0</span>
-        </button>
-
         <div class="nav-section-label">Compliance</div>
         <button class="nav-item" onclick="switchPanel('alerts',this)">
           <span class="nav-icon">
@@ -2029,10 +2021,13 @@ body {
       <div class="admin-panel" id="panel-submissions">
         <div class="panel-header">
           <h2>All Submissions</h2>
-          <p>Full itemized view of every checklist entry submitted today.</p>
+          <p id="submissionsSubtitle">Full itemized view of every checklist entry submitted today.</p>
         </div>
         <div class="admin-filters-row">
           <span class="filter-label">FILTER:</span>
+          <select class="filter-select" id="filterSubDate" onchange="renderAdmin()" style="min-width:140px">
+            <option value="">Today</option>
+          </select>
           <select class="filter-select" id="filterDealer" onchange="renderAdmin()">
             <option value="">All Dealers</option>
           </select>
@@ -2203,55 +2198,6 @@ body {
             <button class="btn-sm" id="histPrevBtn" onclick="histPage(-1)">← Prev</button>
             <span id="histPageInfo" style="font-size:12px;color:var(--text2)">Page 1</span>
             <button class="btn-sm" id="histNextBtn" onclick="histPage(1)">Next →</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ─── CODE UPLOADS PANEL ─── -->
-      <div class="admin-panel" id="panel-codefiles">
-        <div class="panel-header">
-          <h2>Code Uploads</h2>
-          <p>Every Excel file of codes uploaded by dealers against checklist items, in one place — no need to dig through remarks.</p>
-        </div>
-
-        <div class="history-controls" style="flex-wrap:wrap;gap:12px 16px;align-items:flex-end">
-          <div class="history-ctrl-group">
-            <label class="history-ctrl-label">Dealer</label>
-            <select class="filter-select" id="cfDealer">
-              <option value="">All Dealers</option>
-            </select>
-          </div>
-          <div class="history-ctrl-group">
-            <label class="history-ctrl-label">Date</label>
-            <input type="date" class="filter-select" id="cfDate" style="cursor:pointer">
-          </div>
-          <div style="display:flex;gap:8px;margin-top:18px">
-            <button class="btn-primary" onclick="renderCodeFiles()" style="padding:7px 22px;font-size:13px;border-radius:6px;border:none;cursor:pointer;background:var(--accent);color:#fff;font-weight:600;letter-spacing:0.2px">🔍 Filter</button>
-            <button class="btn-sm" onclick="document.getElementById('cfDealer').value='';document.getElementById('cfDate').value='';renderCodeFiles()" style="color:var(--text3)">Clear</button>
-            <button class="btn-sm" onclick="loadCodeFilesPanel()" style="color:var(--text3)">↻ Refresh</button>
-          </div>
-        </div>
-
-        <div class="table-card">
-          <div class="table-card-header">
-            <span class="table-card-title">Uploaded Files</span>
-            <span class="table-count" id="cfTableCount">0 files</span>
-          </div>
-          <div style="overflow-x:auto">
-            <table class="admin-table">
-              <thead>
-                <tr>
-                  <th>Dealer</th>
-                  <th>Section</th>
-                  <th>Item</th>
-                  <th>File</th>
-                  <th>Codes</th>
-                  <th>Uploaded</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="cfTableBody"></tbody>
-            </table>
           </div>
         </div>
       </div>
@@ -2442,8 +2388,6 @@ function doGet(e) {
       return jsonResp(saveAdmin(data));
     }
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
-    if (action === 'getItemCodeFiles') return jsonResp(getItemCodeFiles());
-    if (action === 'getCodeFileByUploadId') return jsonResp(getCodeFileByUploadId(e.parameter.uploadId));
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action: ' + action });
 }
@@ -2458,8 +2402,6 @@ function doPost(e) {
     if (action === 'clearSubmissions') return jsonResp(clearSubmissions());
     if (action === 'saveChecklists')   return jsonResp(saveChecklists(body.data));
     if (action === 'getAllHistory')     return jsonResp(getAllHistory());
-    if (action === 'saveItemCodesFile') return jsonResp(saveItemCodesFile(body.data));
-    if (action === 'getItemCodeFiles')  return jsonResp(getItemCodeFiles());
   } catch(err) { return jsonResp({ error: err.message }); }
   return jsonResp({ error: 'Unknown action' });
 }
@@ -2545,71 +2487,6 @@ function saveAdmin(admin) {
   sh.appendRow(['user','pass']);
   sh.appendRow([admin.user, admin.pass]);
   return { ok: true };
-}
-
-// ─── ITEM CODE FILES — dealer-uploaded Excel files of codes, saved to Drive
-// so admin can open/download them directly instead of digging through Sheets ───
-function getCodeFilesFolder() {
-  const FOLDER_NAME = 'NBS Compliance — Item Code Uploads';
-  const root = DriveApp.getRootFolder();
-  const existing = root.getFoldersByName(FOLDER_NAME);
-  if (existing.hasNext()) return existing.next();
-  return root.createFolder(FOLDER_NAME);
-}
-
-function saveItemCodesFile(payload) {
-  // payload: { uploadId, dealerId, dealerName, section, sectionName, itemIdx, item, fileName, base64, count, date, time }
-  const folder = getCodeFilesFolder();
-  const mimeType = MimeType.MICROSOFT_EXCEL;
-  const decoded = Utilities.base64Decode(payload.base64);
-  const blob = Utilities.newBlob(decoded, mimeType, payload.fileName || 'codes.xlsx');
-  const safeName = \`\${payload.dealerId}_\${payload.date}_\${(payload.item || 'item').slice(0,40)}_\${payload.fileName || 'codes.xlsx'}\`;
-  blob.setName(safeName);
-  const file = folder.createFile(blob);
-  // Make link-accessible to anyone in the org with the link (matches "Anyone" web app deployment trust level)
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  const url = file.getUrl();
-
-  const sh = getSheet('ItemCodeFiles', ['uploadId','dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl']);
-  sh.appendRow([
-    payload.uploadId || '', payload.dealerId, payload.dealerName, payload.section, payload.sectionName,
-    payload.itemIdx, payload.item, payload.fileName, payload.count,
-    payload.date, payload.time, url
-  ]);
-
-  return { ok: true, url: url };
-}
-
-function getCodeFileByUploadId(uploadId) {
-  const sh = SS.getSheetByName('ItemCodeFiles');
-  if (!sh || sh.getLastRow() <= 1 || !uploadId) return { found: false };
-  const numRows = sh.getLastRow() - 1;
-  const data = sh.getRange(2, 1, numRows, 12).getValues(); // uploadId..driveUrl
-  for (let i = data.length - 1; i >= 0; i--) { // search newest-first
-    if (String(data[i][0]).trim() === String(uploadId).trim()) {
-      return { found: true, url: data[i][11], codeCount: data[i][8] };
-    }
-  }
-  return { found: false };
-}
-
-function getItemCodeFiles() {
-  const sh = SS.getSheetByName('ItemCodeFiles');
-  if (!sh || sh.getLastRow() <= 1) return { files: [] };
-  const COLS = ['uploadId','dealerId','dealerName','section','sectionName','itemIdx','item','fileName','codeCount','date','time','driveUrl'];
-  const numRows = sh.getLastRow() - 1;
-  const data = sh.getRange(2, 1, numRows, COLS.length).getValues();
-  const files = data
-    .filter(row => row[1] && String(row[1]).trim() !== '')
-    .map(row => {
-      const obj = {};
-      COLS.forEach((h, i) => obj[h] = row[i]);
-      obj['date'] = obj['date'] instanceof Date
-        ? Utilities.formatDate(obj['date'], 'Asia/Kolkata', 'dd MMM yyyy')
-        : String(obj['date'] || '').trim();
-      return obj;
-    });
-  return { files: files };
 }
 
 function saveSubmission(sub) {
@@ -2724,44 +2601,19 @@ async function connectSheets() {
   }
 }
 
-function timeoutPromise(ms) {
-  return new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms));
-}
-
 async function gasGet(action, url) {
   const base = url || GAS_URL;
   const u = base + '?action=' + action + '&t=' + Date.now();
-  const res = await Promise.race([
-    fetch(u, { redirect: 'follow' }),
-    timeoutPromise(12000)
-  ]);
-  return res.json();
-}
-
-// getAll is the heaviest call (full dealer/checklist/admin payload) and Apps Script
-// cold starts can comfortably exceed a 12s timeout. Use a longer timeout and one
-// automatic retry before giving up — avoids dumping the user on the setup screen
-// just because the script hadn't "warmed up" yet.
-// Uses Promise.race instead of AbortController/signal, since some sandboxed/preview
-// environments proxy fetch() through postMessage and AbortSignal objects aren't
-// structured-cloneable, which throws a DataCloneError before the request even starts.
-async function gasGetWithRetry(action, { timeoutMs = 25000, retries = 1 } = {}) {
-  let lastErr;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      const u = GAS_URL + '?action=' + action + '&t=' + Date.now();
-      const res = await Promise.race([
-        fetch(u, { redirect: 'follow' }),
-        timeoutPromise(timeoutMs)
-      ]);
-      return await res.json();
-    } catch (e) {
-      lastErr = e;
-      // brief pause before retrying, gives a cold-starting script a moment
-      if (attempt < retries) await new Promise(r => setTimeout(r, 800));
-    }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000); // 12s timeout
+  try {
+    const res = await fetch(u, { redirect: 'follow', signal: ctrl.signal });
+    clearTimeout(timer);
+    return res.json();
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
   }
-  throw lastErr;
 }
 
 async function gasPost(body) {
@@ -2770,9 +2622,12 @@ async function gasPost(body) {
   const dataStr    = body.data !== undefined ? JSON.stringify(body.data) : '';
   const encoded    = encodeURIComponent(dataStr);
   const url        = GAS_URL + '?action=' + action + '&data=' + encoded + '&t=' + Date.now();
+  const ctrl       = new AbortController();
+  const timer      = setTimeout(() => ctrl.abort(), 15000);
 
   // If URL would be too long (>7000 chars), fall back to no-cors POST
   if (url.length > 7000) {
+    clearTimeout(timer);
     fetch(GAS_URL, {
       method: 'POST', mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
@@ -2781,15 +2636,18 @@ async function gasPost(body) {
     return { ok: true };
   }
 
-  const res  = await Promise.race([
-    fetch(url, { redirect: 'follow' }),
-    timeoutPromise(15000)
-  ]);
-  const text = await res.text();
-  let json;
-  try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
-  if (json && json.error) throw new Error(json.error);
-  return { ok: true };
+  try {
+    const res  = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+    clearTimeout(timer);
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); } catch(_) { json = { ok: true }; }
+    if (json && json.error) throw new Error(json.error);
+    return { ok: true };
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
 }
 
 /* ── DATA ── */
@@ -2866,7 +2724,7 @@ async function saveAdminCreds() {
 async function initApp() {
   showLoadingOverlay(true);
   try {
-    const all = await gasGetWithRetry('getAll', { timeoutMs: 25000, retries: 1 });
+    const all = await gasGet('getAll');
 
     // Load checklists from Sheets — fully replace hardcoded defaults
     if (all.checklists && all.checklists.length > 0) {
@@ -3559,22 +3417,11 @@ async function switchPanel(id, el) {
     dealers:     'Dealer Summary',
     alerts:      'Risk Alerts',
     manage:      'Manage Dealers',
-    history:     'Past Data',
-    codefiles:   'Code Uploads'
+    history:     'Past Data'
   };
   document.getElementById('panelTitle').textContent = titles[id] || id;
-  if (id === 'history')   { loadHistoryData(); return; }
-  if (id === 'manage')    { renderClMgmt(); return; }
-  if (id === 'codefiles') {
-    try { await loadCodeFilesPanel(); }
-    catch (e) {
-      console.error('[switchPanel codefiles]', e);
-      showToast('Could not load Code Uploads: ' + e.message, 'error');
-      const tbody = document.getElementById('cfTableBody');
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--red)">Failed to load: ${e.message}</td></tr>`;
-    }
-    return;
-  }
+  if (id === 'history') { loadHistoryData(); return; }
+  if (id === 'manage')  { renderClMgmt(); return; }
   // For live panels, always pull fresh submissions from Sheets filtered to today (IST)
   try {
     const res = await gasGet('getAllHistory');
@@ -3810,10 +3657,47 @@ function renderAdmin() {
   renderAlerts();
   renderDealerManagement();
 
-  // Submissions panel still uses today's data + its own filters
+  // Submissions panel: respects the new date filter (defaults to today)
+  // — does not touch Overview, which keeps using its own date strip.
+  const subDateSel = document.getElementById('filterSubDate');
+  populateSubDateDropdown(subDateSel);
+  const subDateVal = subDateSel ? subDateSel.value : '';
+  const subRows = subDateVal
+    ? histAllRows.filter(r => r.date === subDateVal)
+    : buildRows(); // today, live data
+
   const f = getFilters();
-  let rows = applyFilters(allTodayRows, f);
+  let rows = applyFilters(subRows, f);
   renderTable(rows);
+
+  const subSubtitle = document.getElementById('submissionsSubtitle');
+  if (subSubtitle) {
+    subSubtitle.textContent = subDateVal
+      ? `Full itemized view of every checklist entry submitted on ${subDateVal}.`
+      : 'Full itemized view of every checklist entry submitted today.';
+  }
+}
+
+// Fills the Submissions date dropdown with every distinct date found in history,
+// newest first, keeping "Today" pinned at the top. Preserves current selection.
+function populateSubDateDropdown(selectEl) {
+  if (!selectEl) return;
+  const knownCount = Number(selectEl.dataset.histCount || -1);
+  if (knownCount === histAllRows.length) return; // no new data since last populate
+  selectEl.dataset.histCount = String(histAllRows.length);
+
+  const prevValue = selectEl.value;
+  const todayDMY = today();
+  const dates = Array.from(new Set(histAllRows.map(r => r.date).filter(Boolean)))
+    .filter(d => d !== todayDMY)
+    .sort((a, b) => new Date(b.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')) - new Date(a.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')));
+
+  selectEl.innerHTML = `<option value="">Today (${todayDMY})</option>` +
+    dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  // Restore previous selection if it still exists in the new list
+  if (prevValue && [...selectEl.options].some(o => o.value === prevValue)) {
+    selectEl.value = prevValue;
+  }
 }
 
 function refreshFilterDropdowns() {
@@ -3878,6 +3762,15 @@ function getFilters() {
     status:  document.getElementById('filterStatus')?.value  || '',
     search:  document.getElementById('searchInput')?.value.toLowerCase() || ''
   };
+}
+
+function formatRemarksWithLinks(remarks) {
+  if (!remarks) return '<span style="color:var(--text4)">—</span>';
+  const esc = String(remarks)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\n/g, '<br>');
+  return esc.replace(/(https?:\/\/[^\s<]+)/g,
+    '<a href="$1" target="_blank" style="color:var(--accent2);text-decoration:underline">📎 Open File</a>');
 }
 
 function applyFilters(rows, f) {
@@ -4012,17 +3905,6 @@ function statusChip(s) {
   return `<span class="status-chip ${cls}">${label}</span>`;
 }
 
-// Detect "... — https://drive.google.com/..." pattern in remarks and render
-// the URL as a clickable "View File" button instead of a raw long link.
-function formatRemarksCell(remarks) {
-  if (!remarks) return '<span style="color:var(--text4)">—</span>';
-  const m = String(remarks).match(/(https:\/\/drive\.google\.com\/\S+)/);
-  if (!m) return remarks;
-  const url = m[1];
-  const text = remarks.slice(0, m.index).replace(/[\s—-]+$/, '');
-  return `${text} <a href="${url}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:var(--accent-dim);color:var(--accent2);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">📄 View File</a>`;
-}
-
 function renderTable(rows) {
   const tbody = document.getElementById('adminTableBody');
   const cnt   = document.getElementById('tableCount');
@@ -4046,7 +3928,7 @@ function renderTable(rows) {
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${String(r.itemIdx).padStart(2,'0')}</td>
       <td style="font-size:13px">${r.item}</td>
       <td>${statusChip(r.status)}</td>
-      <td class="remarks-cell">${formatRemarksCell(r.remarks)}</td>
+      <td class="remarks-cell">${formatRemarksWithLinks(r.remarks)}</td>
       <td class="time-cell">${r.date}<br>${r.time}</td>
     </tr>`).join('');
 }
@@ -4281,6 +4163,8 @@ function getItemPerms(dealer, si) {
   return dealer.itemPerms[si];
 }
 
+
+
 function getItemImportPerms(dealer, si) {
   // dealer.itemImportPerms: { [si]: [false,true,false,...] } — per-item "allow Excel code import"
   if (!dealer.itemImportPerms) dealer.itemImportPerms = {};
@@ -4292,29 +4176,24 @@ function getItemImportPerms(dealer, si) {
 }
 
 function openItemPermsModal(dealerId, si) {
-  try {
-    const dealer = dealerRegistry[dealerId];
-    if (!dealer) {
-      showToast(`Dealer ${dealerId} not found — try refreshing the page.`, 'error');
-      return;
-    }
-    const sectionName = CHECKLISTS[si].name;
-    const items = CHECKLISTS[si].items;
-    const perms = getItemPerms(dealer, si) || [];
-    const importPerms = getItemImportPerms(dealer, si) || [];
+  const dealer = dealerRegistry[dealerId];
+  const sectionName = CHECKLISTS[si].name;
+  const items = CHECKLISTS[si].items;
+  const perms = getItemPerms(dealer, si);
+  const importPerms = getItemImportPerms(dealer, si);
 
-    // Remove existing modal
-    const old = document.getElementById('itemPermsModal');
-    if (old) old.remove();
+  // Remove existing modal
+  const old = document.getElementById('itemPermsModal');
+  if (old) old.remove();
 
-    const modal = document.createElement('div');
-    modal.id = 'itemPermsModal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(10,11,15,0.88);display:flex;align-items:center;justify-content:center;padding:1rem';
-    modal.onclick = e => { if (e.target === modal) closeItemPermsModal(); };
+  const modal = document.createElement('div');
+  modal.id = 'itemPermsModal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(10,11,15,0.88);display:flex;align-items:center;justify-content:center;padding:1rem';
+  modal.onclick = e => { if (e.target === modal) closeItemPermsModal(); };
 
-    const allChecked = perms.length > 0 && perms.every(Boolean);
+  const allChecked = perms.every(Boolean);
 
-    modal.innerHTML = `
+  modal.innerHTML = `
     <div style="background:var(--ink2);border:1px solid var(--border2);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
       <div style="padding:1.25rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
         <div>
@@ -4322,11 +4201,6 @@ function openItemPermsModal(dealerId, si) {
           <div style="font-size:11px;color:var(--text3);margin-top:2px">Item access for <strong style="color:var(--text2)">${dealer.name}</strong> (${dealerId})</div>
         </div>
         <button onclick="closeItemPermsModal()" style="background:var(--glass);border:1px solid var(--border2);border-radius:8px;padding:5px 10px;font-size:13px;color:var(--text2);cursor:pointer;font-family:inherit">✕</button>
-      </div>
-
-      <div style="padding:0.6rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0;background:var(--accent-dim)">
-        <span style="font-size:11px;color:var(--accent2);font-weight:700">📥 EXCEL UPLOAD ACCESS</span>
-        <span style="font-size:10px;color:var(--text3)">— toggle which items below allow a dealer to upload a codes file instead of typing remarks</span>
       </div>
 
       <div style="padding:0.75rem 1.5rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0">
@@ -4340,27 +4214,23 @@ function openItemPermsModal(dealerId, si) {
       </div>
 
       <div style="overflow-y:auto;padding:0.5rem 1rem">
-        ${items.map((item, idx) => {
-          const itemChecked = !!perms[idx];
-          const importChecked = !!importPerms[idx];
-          return `
-          <div style="display:flex;align-items:center;gap:10px;padding:10px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border);flex-wrap:wrap"
+        ${items.map((item, idx) => `
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 6px;border-radius:8px;transition:background .1s;border-bottom:1px solid var(--border)"
             onmouseover="this.style.background='var(--glass)'" onmouseout="this.style.background='transparent'">
-            <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${itemChecked ? 'checked' : ''}
+            <input type="checkbox" id="itemperm_${dealerId}_${si}_${idx}" ${perms[idx] ? 'checked' : ''}
               onchange="toggleItemPerm('${dealerId}',${si},${idx},this.checked)"
-              style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-            <span style="flex:1;min-width:140px;font-size:12px;line-height:1.5;color:${itemChecked ? 'var(--text)' : 'var(--text3)'}">
+              style="width:14px;height:14px;margin-top:2px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
+            <span style="flex:1;font-size:12px;line-height:1.5;color:${perms[idx] ? 'var(--text)' : 'var(--text3)'}">
               <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text4);margin-right:6px">${String(idx+1).padStart(2,'0')}</span>
               ${item}
             </span>
-            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:3px 10px;border-radius:12px;background:${importChecked ? 'var(--accent-dim)' : 'var(--glass2)'};border:1.5px solid ${importChecked ? 'var(--accent)' : 'var(--border2)'}" title="Allow this dealer to upload a code list (Excel) for this task instead of typing remarks">
-              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importChecked ? 'checked' : ''}
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;flex-shrink:0;padding:2px 8px;border-radius:12px;background:${importPerms[idx] ? 'var(--accent-dim)' : 'var(--glass)'};border:1px solid ${importPerms[idx] ? 'rgba(59,123,255,0.3)' : 'var(--border2)'}" title="Allow this dealer to import a code list (Excel) for this task instead of typing remarks">
+              <input type="checkbox" id="itemimport_${dealerId}_${si}_${idx}" ${importPerms[idx] ? 'checked' : ''}
                 onchange="toggleItemImportPerm('${dealerId}',${si},${idx},this.checked)"
-                style="width:13px;height:13px;accent-color:var(--accent);cursor:pointer;flex-shrink:0">
-              <span style="font-size:10px;font-weight:700;color:${importChecked ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Upload</span>
+                style="width:12px;height:12px;accent-color:var(--accent);cursor:pointer">
+              <span style="font-size:10px;font-weight:600;color:${importPerms[idx] ? 'var(--accent2)' : 'var(--text3)'};white-space:nowrap">📥 Import</span>
             </label>
-          </div>`;
-        }).join('')}
+          </div>`).join('')}
       </div>
 
       <div style="padding:1rem 1.5rem;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
@@ -4368,11 +4238,7 @@ function openItemPermsModal(dealerId, si) {
         <button onclick="saveItemPerms('${dealerId}',${si})" style="padding:8px 18px;background:var(--accent);border:none;border-radius:8px;font-size:13px;font-weight:600;font-family:inherit;color:#fff;cursor:pointer">Save Changes</button>
       </div>
     </div>`;
-    document.body.appendChild(modal);
-  } catch (err) {
-    console.error('[openItemPermsModal]', err);
-    showToast('Could not open item access settings: ' + err.message, 'error');
-  }
+  document.body.appendChild(modal);
 }
 
 function closeItemPermsModal() {
@@ -4840,7 +4706,7 @@ function renderHistoryTable() {
       <td style="font-size:11px;color:var(--text2)">${r.sectionName || '—'}</td>
       <td style="font-size:11px;max-width:240px">${r.item || '—'}</td>
       <td><span class="${s.cls}" style="font-size:10px;padding:2px 8px;border-radius:20px;white-space:nowrap">${s.label}</span></td>
-      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${formatRemarksCell(r.remarks)}</td>
+      <td style="font-size:11px;color:var(--text2);max-width:180px;word-break:break-word">${formatRemarksWithLinks(r.remarks)}</td>
       <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3)">${r.time || '—'}</td>
     </tr>`;
   }).join('');
@@ -5115,29 +4981,7 @@ async function importCodesForItem(input, uid, dealerId) {
   const file = input.files[0];
   if (!file) return;
   const fileName = file.name;
-
-  // Guard against the same item firing this twice concurrently (duplicate change
-  // events, or a re-render mid-upload re-triggering the input) — without this,
-  // two overlapping uploads can race and the earlier one's "Uploading…" placeholder
-  // can overwrite the later one's finished result in the remarks box.
-  if (!window._activeImports) window._activeImports = {};
-  if (window._activeImports[uid]) {
-    console.warn('[importCodesForItem] ignored duplicate trigger for', uid);
-    input.value = '';
-    return;
-  }
-  window._activeImports[uid] = true;
-
-  // uid format: s{si}_i{idx}_{dealerId}
-  const m = uid.match(/^s(\d+)_i(\d+)_/);
-  const si  = m ? Number(m[1]) : null;
-  const idx = m ? Number(m[2]) : null;
-  const section = si !== null ? CHECKLISTS[si] : null;
-  const itemText = section ? section.items[idx] : '';
-
   const remEl = document.getElementById(`rem-${uid}`);
-  const origRemPlaceholder = remEl ? remEl.value : '';
-
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: 'array' });
@@ -5153,8 +4997,14 @@ async function importCodesForItem(input, uid, dealerId) {
       return;
     }
 
+    if (file.size > 8 * 1024 * 1024) { // 8MB safety cap
+      showToast('File too large (max 8MB).', 'error');
+      input.value = '';
+      return;
+    }
+
+    if (remEl) { remEl.value = `Uploading ${codes.length} codes…`; }
     showToast(`Uploading ${fileName}…`, 'success');
-    if (remEl) remEl.value = `Uploading ${fileName}…`;
 
     const base64 = await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -5163,64 +5013,25 @@ async function importCodesForItem(input, uid, dealerId) {
       reader.readAsDataURL(file);
     });
 
-    const effectiveDate = dealerSelectedDate || today();
-    const uploadId = `up_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
-    const payload = {
-      uploadId,
-      dealerId,
-      dealerName: DEALER_NAMES[dealerId] || dealerId,
-      section: si,
-      sectionName: section ? section.name : '',
-      itemIdx: idx,
-      item: itemText,
-      fileName,
-      base64,
-      count: codes.length,
-      date: effectiveDate,
-      time: nowTime()
-    };
-
-    // GAS web apps don't return CORS headers on POST, so a normal fetch() POST
-    // gets silently blocked by the browser ("Upload failed" with no real detail).
-    // Fire-and-forget via no-cors (which always succeeds at the network level),
-    // then poll a small GET endpoint — GETs to GAS do return readable responses —
-    // until the saved file shows up, identified by this upload's unique id.
-    await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'saveItemCodesFile', data: payload })
+    // Actually upload to Drive via GAS so admin can open the real file later.
+    // Without this step the file only ever lived in browser memory and was lost on submit.
+    const result = await gasUploadFile({
+      fileName: `${dealerId}_${fileName}`,
+      mimeType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      base64
     });
 
-    let driveUrl = null;
-    let lastPollError = null;
-    const maxAttempts = 14; // ~14 * 1.5s ≈ 21s, generous for a cold-starting script
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise(r => setTimeout(r, 1500));
-      try {
-        const pollUrl = GAS_URL + '?action=getCodeFileByUploadId&uploadId=' + encodeURIComponent(uploadId) + '&t=' + Date.now();
-        const pollRes = await Promise.race([fetch(pollUrl, { redirect: 'follow' }), timeoutPromise(10000)]);
-        const check = await pollRes.json();
-        console.log('[importCodesForItem poll]', attempt, check);
-        if (check && check.error) { lastPollError = check.error; continue; }
-        if (check && check.found) { driveUrl = check.url; break; }
-      } catch (e) {
-        console.warn('[importCodesForItem poll error]', attempt, e);
-        lastPollError = e.message;
-      }
-    }
-
-    if (!driveUrl) {
-      if (lastPollError) throw new Error('Backend error: ' + lastPollError);
-      throw new Error('Upload is taking longer than expected — check the Code Uploads admin tab in a minute.');
+    if (!result || !result.fileUrl) {
+      throw new Error(result && result.error ? result.error : 'Upload returned no file link');
     }
 
     if (!window._itemImportFiles) window._itemImportFiles = {};
-    window._itemImportFiles[uid] = { fileName, count: codes.length, url: driveUrl };
+    window._itemImportFiles[uid] = { fileName, count: codes.length, fileUrl: result.fileUrl };
 
-    // Auto-fill the remarks field with a summary + link, so admin sees it directly in Submissions too
+    // Fill remarks with a summary AND the real Drive link, so it travels with the
+    // submission into Sheets and admin can click through to the actual file.
     if (remEl) {
-      remEl.value = `${codes.length} codes uploaded (${fileName}) — ${driveUrl}`;
+      remEl.value = `${codes.length} codes uploaded (${fileName}): ${result.fileUrl}`;
       remEl.classList.remove('mandatory');
     }
     // Auto-select "Completed" status when codes are successfully imported, unless dealer already chose something
@@ -5232,105 +5043,72 @@ async function importCodesForItem(input, uid, dealerId) {
         completedRadio.dispatchEvent(new Event('change'));
       }
     }
-    showToast(`✓ ${codes.length} codes uploaded — admin can now access the file`, 'success');
+    showToast(`✓ ${codes.length} codes uploaded — admin can open the file from Submissions`, 'success');
   } catch (err) {
     console.error('[importCodesForItem]', err);
-    if (remEl) remEl.value = origRemPlaceholder;
-    showToast(err.message || 'Upload failed — check connection and try again.', 'error');
+    if (remEl) remEl.value = '';
+    showToast('Failed to upload that file. Check connection and try again.', 'error');
   } finally {
     input.value = '';
-    delete window._activeImports[uid];
   }
 }
 
-// Admin-facing: fetch all uploaded code files (across all dealers/dates)
-async function loadItemCodeFiles() {
-  try {
-    const res = await gasGet('getItemCodeFiles');
-    return (res && res.files) ? res.files : [];
-  } catch (e) {
-    console.error('[loadItemCodeFiles]', e);
-    return [];
-  }
+// Uploads a file to GAS using a hidden iframe + form POST, which reliably returns
+// a real response (a no-cors fetch cannot read anything back from GAS).
+function gasUploadFile(payload) {
+  return new Promise((resolve, reject) => {
+    const reqId = 'up_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const iframeName = 'gasUploadFrame_' + reqId;
+
+    const iframe = document.createElement('iframe');
+    iframe.name = iframeName;
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = GAS_URL;
+    form.target = iframeName;
+    form.style.display = 'none';
+
+    const fields = {
+      action: 'uploadAttachment',
+      reqId,
+      fileName: payload.fileName,
+      mimeType: payload.mimeType,
+      base64: payload.base64
+    };
+    Object.entries(fields).forEach(([k, v]) => {
+      const inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = k; inp.value = v;
+      form.appendChild(inp);
+    });
+    document.body.appendChild(form);
+
+    const timeout = setTimeout(() => { cleanup(); reject(new Error('Upload timed out')); }, 30000);
+
+    function cleanup() {
+      clearTimeout(timeout);
+      form.remove();
+      setTimeout(() => iframe.remove(), 500);
+    }
+
+    iframe.onload = () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        const text = doc.body ? doc.body.textContent : '';
+        const json = JSON.parse(text);
+        cleanup();
+        resolve(json);
+      } catch (e) {
+        cleanup();
+        reject(e);
+      }
+    };
+
+    form.submit();
+  });
 }
-
-let _codeFilesCache = [];
-
-async function loadCodeFilesPanel() {
-  const tbody = document.getElementById('cfTableBody');
-  if (!tbody) throw new Error('Code Uploads panel HTML not found on page — try a hard refresh (Ctrl+Shift+R).');
-  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text3)">Loading…</td></tr>`;
-
-  const files = await loadItemCodeFiles();
-  _codeFilesCache = Array.isArray(files) ? files : [];
-
-  // populate dealer filter dropdown
-  const dealerSel = document.getElementById('cfDealer');
-  if (dealerSel) {
-    const currentVal = dealerSel.value;
-    const uniqueDealers = [...new Map(_codeFilesCache.map(f => [f.dealerId, f.dealerName])).entries()];
-    dealerSel.innerHTML = '<option value="">All Dealers</option>' +
-      uniqueDealers.map(([id, name]) => `<option value="${id}">${name} (${id})</option>`).join('');
-    dealerSel.value = currentVal;
-  }
-
-  const badge = document.getElementById('codeFileCountBadge');
-  if (badge) badge.textContent = _codeFilesCache.length;
-
-  renderCodeFiles();
-}
-
-function renderCodeFiles() {
-  const dealerFilter = document.getElementById('cfDealer')?.value || '';
-  const dateFilter    = document.getElementById('cfDate')?.value || ''; // YYYY-MM-DD
-
-  let rows = _codeFilesCache.slice();
-  if (dealerFilter) rows = rows.filter(f => f.dealerId === dealerFilter);
-  if (dateFilter) {
-    // file.date is stored as "dd MMM yyyy"; convert filter to same format for comparison
-    const d = new Date(dateFilter + 'T00:00:00');
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const dmy = `${String(d.getDate()).padStart(2,'0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
-    rows = rows.filter(f => f.date === dmy);
-  }
-  // newest first
-  rows.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-
-  const cnt = document.getElementById('cfTableCount');
-  if (cnt) cnt.textContent = `${rows.length} file${rows.length !== 1 ? 's' : ''}`;
-
-  const tbody = document.getElementById('cfTableBody');
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="7">
-      <div class="no-data">
-        <div class="no-data-icon">📄</div>
-        <strong>No code files found</strong>
-        <p>Files dealers upload against checklist items will appear here.</p>
-      </div></td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = rows.map(f => `
-    <tr>
-      <td>
-        <span class="dealer-pill ${DEALER_CLASSES[f.dealerId] || ''}">${f.dealerId}</span>
-        <div class="dealer-name">${f.dealerName}</div>
-      </td>
-      <td><span class="section-chip">${f.sectionName}</span></td>
-      <td style="font-size:13px">${f.item}</td>
-      <td style="font-size:12px;color:var(--text2)">${f.fileName}</td>
-      <td style="font-family:'JetBrains Mono',monospace;font-size:12px">${f.codeCount}</td>
-      <td class="time-cell">${f.date}<br>${f.time}</td>
-      <td>
-        <a href="${f.driveUrl}" target="_blank" rel="noopener"
-          style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--accent-dim);color:var(--accent2);border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap">
-          📄 Open
-        </a>
-      </td>
-    </tr>`).join('');
-}
-
-
 
 async function clImportExcel(input) {
   const file = input.files[0];
