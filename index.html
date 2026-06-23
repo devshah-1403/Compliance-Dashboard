@@ -3881,15 +3881,16 @@ function renderCharts(rows) {
       <span class="legend-val">${s.val}</span>
     </div>`).join('');
 
-  /* Dealer bars */
+  /* Dealer bars — use the SAME date-aware `rows` passed into this function,
+     not the always-today `submissions` global. Previously this ignored
+     whatever date was selected on the Overview strip and only ever showed
+     today's live data, causing dealers to look 0% on past dates they'd
+     actually completed. */
   const dealers = Object.keys(DEALER_NAMES);
   document.getElementById('dealerBars').innerHTML = dealers.map(did => {
-    const subs = Object.values(submissions).filter(s => s.dealer === did);
-    let tot = 0, comp = 0;
-    subs.forEach(s => s.data.forEach(d => {
-      tot++;
-      if (d.status === 'completed') comp++;
-    }));
+    const dealerRows = rows.filter(r => r.dealer === did);
+    const tot  = dealerRows.length;
+    const comp = dealerRows.filter(r => r.status === 'completed').length;
     const pct = tot ? Math.round(comp / tot * 100) : 0;
     const color = DEALER_COLORS[did];
     return `
