@@ -2146,10 +2146,13 @@ body {
       <div class="admin-panel" id="panel-submissions">
         <div class="panel-header">
           <h2>All Submissions</h2>
-          <p>Full itemized view of every checklist entry submitted today.</p>
+          <p id="submissionsSubtitle">Full itemized view of every checklist entry submitted today.</p>
         </div>
         <div class="admin-filters-row">
           <span class="filter-label">FILTER:</span>
+          <select class="filter-select" id="filterSubDate" onchange="renderAdmin()" style="min-width:140px">
+            <option value="">Today</option>
+          </select>
           <select class="filter-select" id="filterDealer" onchange="renderAdmin()">
             <option value="">All Dealers</option>
           </select>
@@ -3930,10 +3933,48 @@ function renderAdmin() {
   renderAlerts();
   renderDealerManagement();
 
-  // Submissions panel still uses today's data + its own filters
+  // Submissions panel: respects the new date filter (defaults to today)
+  // — does not touch Overview, which keeps using its own date strip.
+  const subDateSel = document.getElementById('filterSubDate');
+  populateSubDateDropdown(subDateSel);
+  const subDateVal = subDateSel ? subDateSel.value : '';
+  const subRows = subDateVal
+    ? histAllRows.filter(r => r.date === subDateVal)
+    : buildRows(); // today, live data
+
   const f = getFilters();
-  let rows = applyFilters(allTodayRows, f);
+  let rows = applyFilters(subRows, f);
   renderTable(rows);
+
+  const subSubtitle = document.getElementById('submissionsSubtitle');
+  if (subSubtitle) {
+    subSubtitle.textContent = subDateVal
+      ? `Full itemized view of every checklist entry submitted on ${subDateVal}.`
+      : 'Full itemized view of every checklist entry submitted today.';
+  }
+}
+
+// Fills the Submissions date dropdown with every distinct date found in history,
+// newest first, keeping "Today" pinned at the top. Preserves current selection.
+// Repopulates only when histAllRows actually changes size (avoids resetting
+// the dropdown's selection on every renderAdmin() call).
+function populateSubDateDropdown(selectEl) {
+  if (!selectEl) return;
+  const knownCount = Number(selectEl.dataset.histCount || -1);
+  if (knownCount === histAllRows.length) return;
+  selectEl.dataset.histCount = String(histAllRows.length);
+
+  const prevValue = selectEl.value;
+  const todayDMY = today();
+  const dates = Array.from(new Set(histAllRows.map(r => r.date).filter(Boolean)))
+    .filter(d => d !== todayDMY)
+    .sort((a, b) => new Date(b.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')) - new Date(a.replace(/(\d+) (\w+) (\d+)/, '$2 $1 $3')));
+
+  selectEl.innerHTML = `<option value="">Today (${todayDMY})</option>` +
+    dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  if (prevValue && [...selectEl.options].some(o => o.value === prevValue)) {
+    selectEl.value = prevValue;
+  }
 }
 
 function refreshFilterDropdowns() {
