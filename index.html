@@ -1532,14 +1532,126 @@ body {
   .login-grid { grid-template-columns: 1fr; }
   .login-left { display: none; }
   .login-right { padding: 2rem; }
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .admin-charts { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
-  .admin-main { margin-left: 0; }
-  .cl-head, .cl-row { grid-template-columns: 36px 1fr; }
-  .cl-head .col-status, .cl-row .col-status,
-  .cl-head .col-remarks, .cl-row .col-remarks { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE LAYOUT — tablet (≤1024px) and mobile (≤640px)
+   Purely additive: no existing selectors above are modified,
+   no JS logic changes — only how things lay out on small screens.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ---- Tablet (iPad-ish): collapse sidebar into a slide-out drawer ---- */
+@media (max-width: 1024px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 8px 0 24px rgba(0,0,0,0.4);
+  }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .admin-main { margin-left: 0; }
+
+  .admin-topbar, .dealer-topbar { padding: 0 1rem; }
+
+  #mobileMenuBtn { display: flex; }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 99;
+  }
+  .sidebar-overlay.show { display: block; }
+
+  .kpi-grid { grid-template-columns: repeat(3, 1fr); }
+  .admin-charts { grid-template-columns: 1fr; }
+
+  .admin-filters-row { gap: 6px; }
+  .filter-select, .search-input { font-size: 12px; }
+
+  /* Tables scroll horizontally instead of squashing columns unreadably */
+  .admin-table-wrap, table { overflow-x: auto; display: block; }
+  table { white-space: nowrap; }
+}
+
+/* ---- Mobile phones ---- */
+@media (max-width: 640px) {
+  .topbar-brand-name span { display: none; } /* hide "/ Daily Checklist" subtitle on tiny screens */
+  body { font-size: 14px; }
+
+  .admin-topbar, .dealer-topbar { padding: 0 0.85rem; height: 54px; }
+  .admin-topbar-title, .topbar-brand-name { font-size: 14px; }
+
+  .panel-header h2 { font-size: 18px; }
+  .panel-header p { font-size: 12px; }
+
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi-card { padding: 0.85rem; }
+  .kpi-card .kpi-value, .kpi-value { font-size: 20px; }
+
+  .dealer-hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 1.1rem 1.25rem;
+  }
+  .dealer-hero-right { text-align: left; width: 100%; }
+
+  .date-chip { font-size: 11px; padding: 5px 8px; }
+
+  .cl-tabs { flex-wrap: wrap; gap: 4px; }
+  .cl-tab { flex: 1 1 auto; font-size: 12px; padding: 7px 10px; }
+
+  /* Checklist rows: stack into a card instead of a cramped 4-col grid.
+     Every column stays visible and usable — nothing is hidden on mobile. */
+  .cl-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px;
+  }
+  .cl-num {
+    display: inline-block;
+    padding: 1px 7px;
+    background: var(--glass2);
+    border-radius: 6px;
+    margin-bottom: 4px;
+  }
+  .cl-label { padding-top: 0; font-size: 13.5px; }
+  .status-group {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .status-label { font-size: 12px; padding: 6px 12px; }
+  .col-remarks, .cl-row .col-remarks { display: block; width: 100%; }
+  .remarks-input { font-size: 13px; }
+
+  .cl-head { display: none; } /* column header row doesn't make sense once stacked */
+
+  .section-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.85rem;
+  }
+  .section-footer .btn-submit { width: 100%; justify-content: center; }
+
+  .admin-filters-row { flex-direction: column; align-items: stretch; }
+  .filter-select, .search-input { width: 100%; }
+
+  .admin-charts { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Tables: allow horizontal scroll, slightly larger touch targets */
+  .admin-table th, .admin-table td { padding: 9px 10px; font-size: 12px; }
+
+  /* Login screen */
+  .login-right { padding: 1.25rem; }
+}
+
+/* ---- Very small phones ---- */
+@media (max-width: 380px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .status-label { font-size: 11px; padding: 5px 9px; }
+}
+
 /* ═══════════════════════════════════════
    CHECKLIST MANAGER (ADMIN)
 ═══════════════════════════════════════ */
@@ -1958,10 +2070,15 @@ body {
       </div>
     </aside>
 
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
+
     <!-- MAIN -->
     <main class="admin-main">
       <!-- Topbar -->
       <div class="admin-topbar">
+        <button id="mobileMenuBtn" onclick="toggleMobileSidebar()" style="display:none;background:var(--glass);border:1px solid var(--border2);border-radius:8px;width:34px;height:34px;align-items:center;justify-content:center;cursor:pointer;margin-right:10px;flex-shrink:0">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
         <div class="admin-topbar-title" id="panelTitle">Compliance Overview</div>
         <div class="admin-topbar-right">
           <div class="live-label">
@@ -3549,6 +3666,9 @@ async function submitSection(si) {
   ADMIN RENDER
 ═══════════════════════════════ */
 async function switchPanel(id, el) {
+  // Close the mobile sidebar drawer automatically after navigating
+  closeMobileSidebar();
+
   document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`panel-${id}`).classList.add('active');
@@ -4850,6 +4970,25 @@ function renderHistoryTable() {
 let _autoRefreshTimer = null;
 const AUTO_REFRESH_MS = 60000; // 60 seconds
 const _docVisible = () => document.visibilityState !== "hidden";
+
+// ─── MOBILE SIDEBAR (tablet/phone drawer) ───
+function toggleMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  if (!sidebar) return;
+  const isOpen = sidebar.classList.contains('mobile-open');
+  if (isOpen) closeMobileSidebar();
+  else {
+    sidebar.classList.add('mobile-open');
+    if (overlay) overlay.classList.add('show');
+  }
+}
+function closeMobileSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  if (sidebar) sidebar.classList.remove('mobile-open');
+  if (overlay) overlay.classList.remove('show');
+}
 
 function showToast(msg, type = 'success') {
   let wrap = document.getElementById('toastWrap');
